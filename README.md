@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-04: Docker and CI baseline**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts.
+A modular NestJS REST starter, currently at **PR-05: Users persistence and password utilities**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts. Users persistence is available through Nest dependency injection; there are no user or authentication endpoints yet.
 
 ## Requirements and installation
 
@@ -109,7 +109,13 @@ docker info
 pnpm test:integration
 ```
 
-This command starts a disposable `postgres:17-alpine` container, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Each run has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite. Run the commands sequentially because they both rebuild `.test-dist/`.
+This command starts disposable `postgres:17-alpine` containers, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Users tests cover normalized email uniqueness, concurrent duplicates, safe public models and upgrades from the pre-users schema with existing data. Each suite has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite, including strict user schemas and real scrypt hashing/verification. Run the commands sequentially because they both rebuild `.test-dist/`.
+
+## Users persistence
+
+Import `UsersModule` in a consuming feature to inject `UsersService` and `PasswordsService`. The service supports create, lookup by UUID/email and updates to email/display name. It validates strict Zod inputs, normalizes email, hashes passwords with the PR-00-verified `@nestjs/authentication` scrypt implementation and returns only explicitly selected public fields. PostgreSQL enforces email uniqueness through an index on `lower(email)`, including concurrent requests.
+
+Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds the users table and role enum without altering the existing example table. No new environment variables are needed. See the [users guide](docs/users.md) for input rules, return types, error handling and password costs.
 
 ## Docker and CI
 
@@ -150,7 +156,9 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [Database and migration guide](docs/database.md)
 - [PR-03 verification results](docs/pr-03-verification.md)
 - [PR-04 verification results](docs/pr-04-verification.md)
+- [Users persistence and password utilities](docs/users.md)
+- [PR-05 verification results](docs/pr-05-verification.md)
 - [Browser auth transport](docs/adr/001-auth-transport.md)
 - [Bearer session model](docs/adr/002-auth-session-model.md)
 
-Users persistence and password utilities follow in PR-05. Authentication and authorization remain later milestones. Optional extensions remain opt-in.
+Authentication and storage contracts follow in PR-06. Authorization and user HTTP APIs remain later milestones. Optional extensions remain opt-in.
