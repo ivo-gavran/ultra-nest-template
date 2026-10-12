@@ -7,6 +7,8 @@ project="nest-smoke-$(date +%s)-$$"
 export POSTGRES_USER=smoke POSTGRES_DB=smoke API_PORT=0 SWAGGER_ENABLED=false
 POSTGRES_PASSWORD="$(node -e 'console.log(require("node:crypto").randomUUID())')"
 export POSTGRES_PASSWORD
+AUTH_SIGNING_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
+export AUTH_SIGNING_KEY AUTH_TRUSTED_ORIGINS=https://app.example.test
 compose() { docker compose --env-file /dev/null --project-name "$project" "$@"; }
 cleanup() { compose down --volumes --remove-orphans; }
 trap cleanup EXIT
@@ -49,6 +51,27 @@ psql "insert into example_records (label) values ('persistence-smoke');"
 compose run --rm migrate
 expected_migrations="$(node -e 'console.log(require("./migrations/meta/_journal.json").entries.length)')"
 test "$(psql 'select count(*) from drizzle.__drizzle_migrations;')" = "$expected_migrations"
+
+API_URL="http://$address" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const base = `${process.env.API_URL}/api/v1/auth`;
+const input = { email: 'container-smoke@example.test', password: 'container smoke password' };
+const post = (path, body = {}, cookie = '') => fetch(`${base}/${path}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', Origin: process.env.AUTH_TRUSTED_ORIGINS, Cookie: cookie },
+  body: JSON.stringify(body),
+});
+const created = await post('register', input);
+assert.equal(created.status, 201);
+assert.deepEqual(Object.keys(await created.json()).sort(), ['accessToken', 'expiresIn']);
+assert.equal((await post('login', input)).status, 200);
+const first = created.headers.get('set-cookie').split(';')[0];
+const rotated = await post('refresh', {}, first);
+assert.equal(rotated.status, 200);
+const next = rotated.headers.get('set-cookie').split(';')[0];
+assert.equal((await post('logout', {}, next)).status, 204);
+assert.equal((await post('refresh', {}, next)).status, 401);
+console.log('Production container registration, login, rotation and logout passed.');
+JS
 
 # Restart and then recreate containers; both must retain the named volume.
 compose restart postgres

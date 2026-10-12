@@ -1,3 +1,4 @@
+import { authEnvironment } from './helpers/auth-environment.js';
 import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import type { INestApplication } from '@nestjs/common';
@@ -105,6 +106,10 @@ describe('Application HTTP conventions', () => {
     const document = (await response.json()) as OpenAPIObject;
     expect(Object.keys(document.paths).sort()).toEqual([
       '/api/v1',
+      '/api/v1/auth/login',
+      '/api/v1/auth/logout',
+      '/api/v1/auth/refresh',
+      '/api/v1/auth/register',
       '/api/v1/greetings',
     ]);
     expect(document.paths['/api/v1/greetings']?.post?.requestBody).toEqual({
@@ -146,6 +151,7 @@ describe('Swagger exposure', () => {
     async (nodeEnv, enabled, status) => {
       const config = new ConfigService(
         environmentSchema.parse({
+          ...authEnvironment,
           NODE_ENV: nodeEnv,
           DATABASE_URL: process.env.DATABASE_URL,
           SWAGGER_ENABLED: enabled,

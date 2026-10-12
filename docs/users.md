@@ -1,6 +1,6 @@
 # Users persistence and passwords
 
-PR-05 adds `UsersModule` under `src/modules/users/`. `AppModule` imports it, and other features can import it to inject `UsersService` or `PasswordsService`. There are no controllers, login/registration routes, tokens, sessions or authorization policies in this milestone. The authentication package's module is not registered; only its `PasswordHasher` provider is instantiated.
+PR-05 introduced `UsersModule` under `src/modules/users/`. `AppModule` and the PR-06 `AuthModule` import it; consuming features can inject `UsersService` or `PasswordsService`. Users CRUD controllers and authorization policies remain later milestones. The authentication feature now registers the official authentication module; this users module retains its package-backed password provider.
 
 ## Service contract
 
@@ -17,7 +17,7 @@ Email is trimmed, lowercased, limited to 254 characters and validated with Zod's
 
 Both create and update schemas are strict. Callers cannot set `role`, `id`, `passwordHash` or timestamps. Updates accept only email and display name; password changes belong to a later account lifecycle operation with session revocation. The PostgreSQL enum supports `user` and `admin`, but this feature exposes no privileged role-assignment method. Future HTTP adapters must enforce authenticated identity and permissions before invoking persistence operations.
 
-`PublicUser` contains `id`, `email`, `displayName`, `role`, `createdAt` and `updatedAt`. Timestamps are JavaScript `Date` objects at this internal service boundary. The repository uses explicit projections for every select/returning query, so a password hash is never loaded into ordinary return objects. The strict public schema also rejects credential-bearing objects. Raw Drizzle row/insert types stay separate from the public shape; the module does not export `UsersRepository`.
+`PublicUser` contains `id`, `email`, `displayName`, `role`, `createdAt` and `updatedAt`. Timestamps are JavaScript `Date` objects at this internal service boundary. The repository uses explicit projections for ordinary select/returning queries, so a password hash is never loaded into public return objects. The strict public schema also rejects credential-bearing objects. Raw Drizzle row/insert types stay separate from the public shape. PR-06 exports `UsersRepository` for the dedicated internal `findAuthenticationCredentials(email)` lookup, which returns only ID and hash to `AuthService`; never expose or log that internal object. UsersService behavior is unchanged.
 
 ## Database behavior and errors
 

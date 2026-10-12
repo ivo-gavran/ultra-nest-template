@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
+import { Public } from '@nestjs/authentication';
 import {
   ApiBadRequestResponse,
   ApiOkResponse,
@@ -23,6 +24,7 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get()
+  @Public()
   @Header('Content-Type', 'text/plain; charset=utf-8')
   @ApiOkResponse({ standardSchema: z.string() })
   getHello(): string {
@@ -30,6 +32,7 @@ export class AppController {
   }
 
   @Post('greetings')
+  @Public()
   @Header('Content-Type', 'text/plain; charset=utf-8')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ standardSchema: z.string() })

@@ -1,3 +1,4 @@
+import { authEnvironment } from './helpers/auth-environment.js';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +14,21 @@ const configModule = import.meta.resolve('@nestjs/config');
 describe('Configuration at process startup', () => {
   it.each([
     ['missing database URL', '', 'DATABASE_URL'],
+    [
+      'missing signing key',
+      'DATABASE_URL=postgresql://localhost/test',
+      'AUTH_SIGNING_KEY',
+    ],
+    [
+      'invalid signing key',
+      'DATABASE_URL=postgresql://localhost/test\nAUTH_SIGNING_KEY=private-test-password',
+      'AUTH_SIGNING_KEY',
+    ],
+    [
+      'missing origins',
+      'DATABASE_URL=postgresql://localhost/test',
+      'AUTH_TRUSTED_ORIGINS',
+    ],
     [
       'invalid database URL',
       'DATABASE_URL=https://user:private-test-password@localhost/test',
@@ -82,7 +98,12 @@ describe('Configuration at process startup', () => {
         await app.close();
       `,
         ],
-        { cwd, env: { PORT: '3200' }, encoding: 'utf8', timeout: 10000 },
+        {
+          cwd,
+          env: { PORT: '3200', ...authEnvironment },
+          encoding: 'utf8',
+          timeout: 10000,
+        },
       );
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(0);

@@ -1,3 +1,4 @@
+import { authEnvironment } from '../helpers/auth-environment.js';
 import 'reflect-metadata';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import {
@@ -23,6 +24,7 @@ import { migrateTestDatabase, startTestDatabase } from '../helpers/postgres.js';
 async function createDatabaseApplication(connectionString: string) {
   const config = new ConfigService(
     environmentSchema.parse({
+      ...authEnvironment,
       NODE_ENV: 'test',
       DATABASE_URL: connectionString,
     }),

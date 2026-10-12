@@ -7,6 +7,7 @@ Use Docker Desktop or a Docker Engine installation with the Compose plugin and B
 ```sh
 cp .env.example .env # First setup only; do not overwrite existing settings
 # Review the local PostgreSQL values in .env
+# Fill AUTH_SIGNING_KEY and AUTH_TRUSTED_ORIGINS (see authentication guide).
 # Foreground mode; Ctrl-C stops the services cleanly:
 docker compose up --build
 ```
@@ -15,15 +16,19 @@ The API is available at `http://localhost:3000/api/v1`. The default stack runs c
 
 Compose starts PostgreSQL 17, waits for its `pg_isready` health check, then starts the API. The API's container health check uses the existing `/api/v1` endpoint; it proves HTTP availability, not database readiness. Dedicated readiness endpoints remain a later milestone.
 
-| Setting             | Local Compose behavior                                                  |
-| ------------------- | ----------------------------------------------------------------------- |
-| `POSTGRES_USER`     | Database role, defaults to `app`                                        |
-| `POSTGRES_DB`       | Database name, defaults to `app`                                        |
-| `POSTGRES_PASSWORD` | Required, with an illustrative development-only value in `.env.example` |
-| `API_PORT`          | Host port, defaults to 3000, bound to `127.0.0.1`                       |
-| `SWAGGER_ENABLED`   | Defaults to `false` in Compose                                          |
+| Setting                | Local Compose behavior                                                  |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `POSTGRES_USER`        | Database role, defaults to `app`                                        |
+| `POSTGRES_DB`          | Database name, defaults to `app`                                        |
+| `POSTGRES_PASSWORD`    | Required, with an illustrative development-only value in `.env.example` |
+| `API_PORT`             | Host port, defaults to 3000, bound to `127.0.0.1`                       |
+| `SWAGGER_ENABLED`      | Defaults to `false` in Compose                                          |
+| `AUTH_SIGNING_KEY`     | Required random signing key; passed only to the API                     |
+| `AUTH_TRUSTED_ORIGINS` | Required exact HTTPS origins (Compose runs production mode)             |
 
 The API and migration service construct an internal URL using the hostname `postgres`. Host-side `DATABASE_URL`, `PORT` and `NODE_ENV` from `.env` do not override the container URL, internal port 3000 or production mode. PostgreSQL is accessible only on the Compose network, not a published host port. Use `docker compose exec postgres psql -U app -d app` to inspect the default local database.
+
+See [authentication setup](authentication.md#configuration-and-startup) for generating the signing key without printing it. Browser authentication requires a same-site HTTPS topology; Compose does not terminate TLS. Use a local HTTPS proxy or your browser's documented localhost Secure-cookie exception. Keep cookie flags secure. The standalone migration image requires only database configuration; Compose still interpolates required API values when parsing its complete project file.
 
 Use URL-safe letters, digits, hyphens and underscores for this local Compose role/database/password, because those values are inserted into a connection URL. Production deployments should inject their own correctly URL-encoded `DATABASE_URL` through the platform's secret management. Compose is a local development example, not a production secret-management solution. Never commit `.env` or put credentials in Docker build arguments. Changing `POSTGRES_*` after volume initialization does not change existing database roles/passwords; manage those through PostgreSQL.
 
@@ -77,7 +82,7 @@ The `Verify` job executes, in order:
 7. `pnpm build`
 8. `bash scripts/verify-compose.sh`
 
-The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It creates a unique project with an ephemeral host port and generated test credentials, then removes only its own containers and volume. It ignores the developer's `.env`. Run it locally with Node and Docker on PATH to reproduce the container checks.
+The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It creates a unique project with an ephemeral host port and generated test credentials/signing key, then removes only its own containers and volume. It ignores the developer's `.env` and needs no repository secrets. Run it locally with Node and Docker on PATH to reproduce the container checks.
 
 Dependabot checks the root npm/pnpm manifest/lockfile, GitHub Actions and Docker definitions weekly. Development minor/patch updates are grouped; updates are PRs requiring review and CI. No automatic merge is configured. The historical PR-00 spike is intentionally not an update target. Review Node changes together across `.nvmrc`, package engines, Dockerfile and the smoke test; pnpm remains pinned consistently in the manifest, image and workflow.
 

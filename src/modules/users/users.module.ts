@@ -13,6 +13,6 @@ import { UsersService } from './users.service.js';
     UsersRepository,
     UsersService,
   ],
-  exports: [UsersService, PasswordsService],
+  exports: [UsersService, PasswordsService, UsersRepository],
 })
 export class UsersModule {}
