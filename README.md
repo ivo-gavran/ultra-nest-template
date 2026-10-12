@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-03: PostgreSQL, Drizzle and migrations**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts.
+A modular NestJS REST starter, currently at **PR-04: Docker and CI baseline**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts.
 
 ## Requirements and installation
 
@@ -111,6 +111,24 @@ pnpm test:integration
 
 This command starts a disposable `postgres:17-alpine` container, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Each run has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite. Run the commands sequentially because they both rebuild `.test-dist/`.
 
+## Docker and CI
+
+With Docker and Compose installed:
+
+```sh
+cp .env.example .env # First setup only; review local database values
+# Starts the API and waits for healthy PostgreSQL:
+docker compose up --build
+# In another terminal; migrations are always explicit:
+docker compose run --build --rm migrate
+```
+
+The API responds at `http://localhost:3000/api/v1`. Compose uses production mode, with Swagger off by default; set `SWAGGER_ENABLED=true` to expose local documentation. PostgreSQL data lives in a named volume and survives `docker compose down`. Rebuild after source changes.
+
+The multi-stage image uses Node 24.21.0, runs as a non-root user and contains production dependencies plus compiled ESM output. Migration tooling has a separate build target. See [Docker and CI instructions](docs/docker-ci.md) for environment settings, deployment migrations, persistent data, shutdown and branch protection setup.
+
+GitHub Actions runs install, lint, format, typecheck, both test suites, build and a Docker Compose smoke test on PRs and pushes to `main`. Test suites run sequentially. Dependabot proposes weekly dependency/action/image updates without automatic merging. Required check: **Verify** from workflow **CI**; configure protection after its first successful GitHub run.
+
 ## Git conventions
 
 Use feature branches and Conventional Commits, for example `feat(users): add profile endpoint`. Lefthook runs ESLint and Prettier checks for staged file paths on `pre-commit`, and Commitlint on `commit-msg`. Hooks check the working copies of those files and do not auto-fix or restage them; format/fix and stage your changes explicitly. The full test suite and build are not run in a commit hook. Keep the pinned Node and pnpm on PATH when committing from a terminal or editor.
@@ -131,7 +149,8 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [PR-02 verification results](docs/pr-02-verification.md)
 - [Database and migration guide](docs/database.md)
 - [PR-03 verification results](docs/pr-03-verification.md)
+- [PR-04 verification results](docs/pr-04-verification.md)
 - [Browser auth transport](docs/adr/001-auth-transport.md)
 - [Bearer session model](docs/adr/002-auth-session-model.md)
 
-CI and Docker packaging follow in PR-04. Authentication and authorization remain later milestones. Optional extensions remain opt-in.
+Users persistence and password utilities follow in PR-05. Authentication and authorization remain later milestones. Optional extensions remain opt-in.

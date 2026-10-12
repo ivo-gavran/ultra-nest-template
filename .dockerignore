@@ -1,0 +1,22 @@
+# Allow only files used by the build or the explicit migration target.
+**
+!Dockerfile
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!tsconfig.json
+!tsconfig.build.json
+!nest-cli.json
+!drizzle.config.ts
+!src/
+!src/**
+!migrations/
+!migrations/**
+# Never include nested secrets or generated artifacts.
+**/.env
+**/.env.*
+**/node_modules
+**/*.spec.ts
+**/*.test.ts
+**/*.log

@@ -4,7 +4,7 @@ The application uses the PR-00-verified versions: `@nestjs/drizzle` 0.0.2, `driz
 
 ## Local setup
 
-Install PostgreSQL locally or use an existing development instance. Create a development role/database using your normal PostgreSQL administration tooling and put its connection URL in an untracked `.env`. `.env.example` supplies illustrative local credentials only; the application does not provision them. No Docker Compose setup is included in this milestone.
+Install PostgreSQL locally or use an existing development instance. Create a development role/database using your normal PostgreSQL administration tooling and put its connection URL in an untracked `.env`. `.env.example` supplies illustrative local credentials only; the application does not provision them. Alternatively, use the local PostgreSQL service in the [Docker Compose setup](docker-ci.md).
 
 Run all database commands from the repository root using the pinned Node/pnpm versions:
 
@@ -57,6 +57,10 @@ The pool has a maximum of 10 connections per application instance, a 5-second co
 Running migration generation does not connect to PostgreSQL. Running migration execution explicitly changes the selected database. There is no `db:push`, startup migration, automatic database reset or automatic rollback. Re-running `db:migrate` on an already migrated database preserves data and does not reapply the initial migration. Future schema upgrades need corresponding forward migrations and tests; the initial migration cannot prove upgrade scenarios that do not exist yet.
 
 For production, run reviewed migrations once as a separate deployment step using an authorized migration identity and appropriate backups. Deployments must include the migration files and a migration environment with Drizzle Kit installed; Kit is a development dependency and is absent from a production-only application install. Coordinate changes for compatibility with still-running application instances. Never use the example credentials in production, disable TLS verification, or paste credential-bearing URLs into logs. No production database was accessed by this implementation.
+
+## Containerized migrations
+
+The runtime image excludes migration tooling. With the local Compose stack running, use `docker compose run --build --rm migrate` to apply the same committed migrations through a separate tooling image. This is an explicit step; starting or restarting the API never applies migrations. Production deployments should build the `migration` target from the same commit and run it once with externally supplied database configuration before deploying the matching runtime image. See [Docker and CI](docker-ci.md) for commands and environment details.
 
 ## Integration tests
 
