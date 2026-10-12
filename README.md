@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-05: Users persistence and password utilities**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts. Users persistence is available through Nest dependency injection; there are no user or authentication endpoints yet.
+A modular NestJS REST starter, currently at **PR-06: JWT authentication and PostgreSQL refresh storage**. The application exposes the original public starter routes and browser register/login/refresh/logout endpoints under `/api/v1/auth`. Environment configuration is validated before the HTTP server starts. Users CRUD endpoints and authorization policies remain later milestones.
 
 ## Requirements and installation
 
@@ -20,6 +20,8 @@ pnpm hooks:install
 cp .env.example .env
 ```
 
+Before starting the API, fill the empty `AUTH_SIGNING_KEY` with 32 random bytes encoded as 64 hex characters and set `AUTH_TRUSTED_ORIGINS`. The [authentication guide](docs/authentication.md#configuration-and-startup) provides a local command that writes the key without printing it. There is no development or production default signing secret.
+
 Corepack is bundled with the selected Node release; if your Node distribution omits it, install Corepack using its official installation instructions before enabling it. `pnpm hooks:install` runs `lefthook install` and must be run once per clone; it is explicit so dependency installation also works without Git or with production-only dependencies. Dependency install scripts for Nest's optional donation message, Scarf's install telemetry and Lefthook's automatic hook installation are disabled in `pnpm-workspace.yaml`.
 
 ## Development and production build
@@ -32,12 +34,14 @@ pnpm start:dev
 
 The Nest CLI compiles TypeScript and restarts on source changes. Configuration loads from `.env` in the current working directory; process environment values take precedence. Restart after changing environment settings. For example, use `PORT=3001 pnpm start:dev` on a POSIX shell.
 
-| Variable          | Accepted values                       | Default                                 |
-| ----------------- | ------------------------------------- | --------------------------------------- |
-| `NODE_ENV`        | `development`, `test`, `production`   | `development`                           |
-| `PORT`            | Decimal integer from 1 to 65535       | `3000`                                  |
-| `DATABASE_URL`    | PostgreSQL URL with host and database | Required                                |
-| `SWAGGER_ENABLED` | Literal `true` or `false`             | `false` in production, otherwise `true` |
+| Variable               | Accepted values                                    | Default                                 |
+| ---------------------- | -------------------------------------------------- | --------------------------------------- |
+| `NODE_ENV`             | `development`, `test`, `production`                | `development`                           |
+| `PORT`                 | Decimal integer from 1 to 65535                    | `3000`                                  |
+| `DATABASE_URL`         | PostgreSQL URL with host and database              | Required                                |
+| `SWAGGER_ENABLED`      | Literal `true` or `false`                          | `false` in production, otherwise `true` |
+| `AUTH_SIGNING_KEY`     | 64 hex characters encoding 32 random bytes         | Required; no default                    |
+| `AUTH_TRUSTED_ORIGINS` | Comma-separated exact origins; HTTPS in production | Required; no wildcard                   |
 
 Missing `DATABASE_URL`, invalid ports or invalid flags prevent startup. Empty strings are invalid. The API creates a lazy PostgreSQL pool: connections open on the first database query, so startup alone does not verify database availability. Example credentials are for local development only. Keep `.env` untracked and inject production values through the deployment environment.
 
@@ -115,7 +119,15 @@ This command starts disposable `postgres:17-alpine` containers, applies the actu
 
 Import `UsersModule` in a consuming feature to inject `UsersService` and `PasswordsService`. The service supports create, lookup by UUID/email and updates to email/display name. It validates strict Zod inputs, normalizes email, hashes passwords with the PR-00-verified `@nestjs/authentication` scrypt implementation and returns only explicitly selected public fields. PostgreSQL enforces email uniqueness through an index on `lower(email)`, including concurrent requests.
 
-Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds the users table and role enum without altering the existing example table. No new environment variables are needed. See the [users guide](docs/users.md) for input rules, return types, error handling and password costs.
+Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds the users table and role enum without altering the existing example table. Users persistence uses the existing `DATABASE_URL`. See the [users guide](docs/users.md) for input rules, return types, error handling and password costs.
+
+## Authentication
+
+`POST /api/v1/auth/register` returns 201; `/login` and `/refresh` return 200 with only `{ accessToken, expiresIn }`; `/logout` returns 204. Auth mutations require an explicit trusted `Origin`. Keep the 15-minute access JWT in browser memory and send it as a bearer token. The rotating opaque refresh token lives only in the `__Host-refresh` HttpOnly/Secure/Lax cookie, with a seven-day absolute family limit.
+
+Run `pnpm db:migrate` to add the auth tables before using these endpoints. The global authentication guard protects new routes by default and reloads the current user from PostgreSQL. The original starter routes remain intentionally public. PostgreSQL enforces one-time consumption and durable family revocation, including concurrent refresh/logout-all storage races. Access JWTs can remain usable until expiry after refresh revocation.
+
+Use same-site HTTPS frontend/API deployments and `credentials: 'include'`. Cookie security is never disabled for local convenience. See [authentication configuration, browser behavior and lifecycle](docs/authentication.md) for exact schemas, origins, local HTTPS/localhost considerations, storage retention, operational limitations and tests.
 
 ## Docker and CI
 
@@ -123,6 +135,7 @@ With Docker and Compose installed:
 
 ```sh
 cp .env.example .env # First setup only; review local database values
+# Fill AUTH_SIGNING_KEY and AUTH_TRUSTED_ORIGINS as described above.
 # Starts the API and waits for healthy PostgreSQL:
 docker compose up --build
 # In another terminal; migrations are always explicit:
@@ -158,7 +171,9 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [PR-04 verification results](docs/pr-04-verification.md)
 - [Users persistence and password utilities](docs/users.md)
 - [PR-05 verification results](docs/pr-05-verification.md)
+- [Authentication and refresh storage](docs/authentication.md)
+- [PR-06 verification results](docs/pr-06-verification.md)
 - [Browser auth transport](docs/adr/001-auth-transport.md)
 - [Bearer session model](docs/adr/002-auth-session-model.md)
 
-Authentication and storage contracts follow in PR-06. Authorization and user HTTP APIs remain later milestones. Optional extensions remain opt-in.
+Session administration follows in PR-07. Authorization, user CRUD APIs and general security hardening remain later milestones. Optional extensions remain opt-in.

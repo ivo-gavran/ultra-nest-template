@@ -1,6 +1,6 @@
 import { loadEnvFile } from 'node:process';
 import { defineConfig } from 'drizzle-kit';
-import { environmentSchema } from './src/config/environment.js';
+import { databaseEnvironmentSchema } from './src/config/environment.js';
 
 try {
   loadEnvFile();
@@ -10,7 +10,7 @@ try {
   }
 }
 
-const environment = environmentSchema.parse(process.env);
+const environment = databaseEnvironmentSchema.parse(process.env);
 
 export default defineConfig({
   dialect: 'postgresql',

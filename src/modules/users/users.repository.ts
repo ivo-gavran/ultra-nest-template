@@ -46,6 +46,23 @@ function rethrowPersistenceError(error: unknown): never {
 export class UsersRepository {
   constructor(@InjectDrizzle() private readonly db: Database) {}
 
+  /** Internal password authentication only; never use this as an HTTP model. */
+  async findAuthenticationCredentials(
+    input: string,
+  ): Promise<{ id: string; passwordHash: string } | undefined> {
+    const email = emailSchema.parse(input);
+    try {
+      const [record] = await this.db
+        .select({ id: users.id, passwordHash: users.passwordHash })
+        .from(users)
+        .where(eq(sql`lower(${users.email})`, email))
+        .limit(1);
+      return record;
+    } catch (error) {
+      return rethrowPersistenceError(error);
+    }
+  }
+
   async create(input: NewUserRecord): Promise<PublicUser> {
     const email = emailSchema.parse(input.email);
     try {

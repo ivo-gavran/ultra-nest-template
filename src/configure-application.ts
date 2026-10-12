@@ -9,11 +9,21 @@ export function configureApplication(app: INestApplication): void {
   app.useGlobalPipes(new StandardSchemaValidationPipe());
 
   const config = app.get(ConfigService<Environment, true>);
+  const origins = config.get('AUTH_TRUSTED_ORIGINS', { infer: true });
+  app.useSecurityHeaders();
+  app.enableCsrfProtection({ trustedOrigins: origins });
+  app.enableCors({
+    origin: origins,
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   if (config.get('SWAGGER_ENABLED', { infer: true })) {
     const options = new DocumentBuilder()
       .setTitle('Ultra Nest Template')
       .setDescription('NestJS starter API')
       .setVersion('1.0')
+      .addBearerAuth()
       .build();
 
     SwaggerModule.setup(

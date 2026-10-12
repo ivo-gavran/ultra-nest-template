@@ -1,3 +1,4 @@
+import { authEnvironment } from '../helpers/auth-environment.js';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import {
@@ -45,6 +46,7 @@ describe('Users persistence on PostgreSQL', () => {
     container = await startTestDatabase();
     const config = new ConfigService(
       environmentSchema.parse({
+        ...authEnvironment,
         NODE_ENV: 'test',
         DATABASE_URL: container.getConnectionUri(),
       }),

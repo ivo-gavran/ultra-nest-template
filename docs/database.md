@@ -22,6 +22,8 @@ Put table definitions in `src/database/schema/`, grouped by feature/domain as th
 
 `users.ts` adds the users table and `user_role` enum. Email uniqueness is enforced by the `users_email_unique` index on `lower(email)`; application writes trim and lowercase the email before persistence. The feature repository explicitly projects public columns and sanitizes database failures so credential-bearing SQL parameters do not escape. See [users persistence](users.md) for the service contract.
 
+`auth.ts` and migration `0002_authentication.sql` add token families, hashed refresh tokens and durable revocation tombstones. The family/owner foreign keys cascade on account deletion; unknown-family revocation markers deliberately have no FK. The integration upgrade test preserves existing users/credentials when applying the auth migration. See [authentication storage and retention](authentication.md#refresh-storage-and-races) for concurrency and cleanup requirements. The migration CLI validates database settings without requiring authentication secrets.
+
 `DatabaseModule` registers a single database with the official `DrizzleModule.forRootAsync()`. Feature services can inject it directly; no base repository or query wrapper is required:
 
 ```ts

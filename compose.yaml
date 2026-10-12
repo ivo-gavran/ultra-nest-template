@@ -8,6 +8,8 @@ services:
       PORT: '3000'
       DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-app}
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY:?Set AUTH_SIGNING_KEY in .env}
+      AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:?Set AUTH_TRUSTED_ORIGINS in .env}
     ports:
       - '127.0.0.1:${API_PORT:-3000}:3000'
     depends_on:
