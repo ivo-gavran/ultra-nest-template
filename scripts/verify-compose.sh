@@ -47,7 +47,8 @@ test "$(psql "select to_regclass('public.example_records') is null;")" = t
 compose run --build --rm migrate
 psql "insert into example_records (label) values ('persistence-smoke');"
 compose run --rm migrate
-test "$(psql 'select count(*) from drizzle.__drizzle_migrations;')" = 1
+expected_migrations="$(node -e 'console.log(require("./migrations/meta/_journal.json").entries.length)')"
+test "$(psql 'select count(*) from drizzle.__drizzle_migrations;')" = "$expected_migrations"
 
 # Restart and then recreate containers; both must retain the named volume.
 compose restart postgres

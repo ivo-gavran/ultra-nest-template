@@ -14,14 +14,16 @@ export async function migrateTestDatabase(
   });
 }
 
-export async function startTestDatabase() {
+export async function startTestDatabase(applyMigrations = true) {
   const container = await new PostgreSqlContainer('postgres:17-alpine')
     .withDatabase('starter_test')
     .withUsername('starter_test')
     .withPassword('local-test-only')
     .start();
   try {
-    await migrateTestDatabase(container.getConnectionUri());
+    if (applyMigrations) {
+      await migrateTestDatabase(container.getConnectionUri());
+    }
     return container;
   } catch (error) {
     await container.stop();

@@ -20,6 +20,8 @@ The CLI loads `.env` with Node's built-in loader, validates it with the same Zod
 
 Put table definitions in `src/database/schema/`, grouped by feature/domain as the application grows, and export them from `index.ts`. Both Drizzle Kit and the runtime use that entry point. The example `example_records` table contains a generated UUID, unique non-null label up to 80 characters, a nonblank CHECK constraint and a timezone-aware creation timestamp. It has no user or authentication semantics and no public database endpoint.
 
+`users.ts` adds the users table and `user_role` enum. Email uniqueness is enforced by the `users_email_unique` index on `lower(email)`; application writes trim and lowercase the email before persistence. The feature repository explicitly projects public columns and sanitizes database failures so credential-bearing SQL parameters do not escape. See [users persistence](users.md) for the service contract.
+
 `DatabaseModule` registers a single database with the official `DrizzleModule.forRootAsync()`. Feature services can inject it directly; no base repository or query wrapper is required:
 
 ```ts
@@ -54,7 +56,7 @@ The pool has a maximum of 10 connections per application instance, a 5-second co
 3. Run `pnpm db:migrate` against the intended database. The initial migration creates only the example table; Drizzle records completed migrations in `drizzle.__drizzle_migrations`.
 4. Run `pnpm test:integration` to apply the committed migrations to a fresh PostgreSQL container and verify existing behavior.
 
-Running migration generation does not connect to PostgreSQL. Running migration execution explicitly changes the selected database. There is no `db:push`, startup migration, automatic database reset or automatic rollback. Re-running `db:migrate` on an already migrated database preserves data and does not reapply the initial migration. Future schema upgrades need corresponding forward migrations and tests; the initial migration cannot prove upgrade scenarios that do not exist yet.
+Running migration generation does not connect to PostgreSQL. Running migration execution explicitly changes the selected database. There is no `db:push`, startup migration, automatic database reset or automatic rollback. Re-running `db:migrate` on an already migrated database preserves data and does not reapply completed migrations. `0001_users.sql` creates only the users table, enum and index. The upgrade test first applies the actual `0000` migration, inserts an example record, then applies the full migration chain twice and verifies that the existing record is preserved. Future schema upgrades need corresponding forward migrations and tests.
 
 For production, run reviewed migrations once as a separate deployment step using an authorized migration identity and appropriate backups. Deployments must include the migration files and a migration environment with Drizzle Kit installed; Kit is a development dependency and is absent from a production-only application install. Coordinate changes for compatibility with still-running application instances. Never use the example credentials in production, disable TLS verification, or paste credential-bearing URLs into logs. No production database was accessed by this implementation.
 

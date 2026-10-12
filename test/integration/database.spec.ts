@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import {
   afterAll,
   beforeAll,
@@ -128,7 +129,9 @@ describe('PostgreSQL through Nest DI and real Drizzle migrations', () => {
     const before = await db.$client.query(
       'select hash, created_at from drizzle.__drizzle_migrations',
     );
-    expect(before.rows).toHaveLength(1);
+    expect(before.rows).toHaveLength(
+      readMigrationFiles({ migrationsFolder: 'migrations' }).length,
+    );
     await migrateTestDatabase(container!.getConnectionUri());
     expect(await db.select().from(exampleRecords)).toEqual([record]);
     const after = await db.$client.query(
