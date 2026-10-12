@@ -1,12 +1,12 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-02: configuration, validation, HTTP conventions and Swagger**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts.
+A modular NestJS REST starter, currently at **PR-03: PostgreSQL, Drizzle and migrations**. The application exposes `GET /api/v1` and a strict Zod example at `POST /api/v1/greetings`. Environment configuration is validated before the HTTP server starts.
 
 ## Requirements and installation
 
 - Node **24.21.0 LTS**, pinned in `.nvmrc`.
 - pnpm **10.33.0**, pinned through `packageManager`.
-- Git for local hooks. No running database, Docker or external service is needed for this milestone.
+- Git for local hooks. PostgreSQL for database operations; a Docker-compatible runtime for integration tests.
 
 ```sh
 git clone https://github.com/ivo-gavran/ultra-nest-template.git
@@ -39,7 +39,7 @@ The Nest CLI compiles TypeScript and restarts on source changes. Configuration l
 | `DATABASE_URL`    | PostgreSQL URL with host and database | Required                                |
 | `SWAGGER_ENABLED` | Literal `true` or `false`             | `false` in production, otherwise `true` |
 
-Missing `DATABASE_URL`, invalid ports or invalid flags prevent startup. Empty strings are invalid. The URL is validated now as required by PR-02; no database connection is opened until PR-03. Example credentials are for local development only. Keep `.env` untracked and inject production values through the deployment environment.
+Missing `DATABASE_URL`, invalid ports or invalid flags prevent startup. Empty strings are invalid. The API creates a lazy PostgreSQL pool: connections open on the first database query, so startup alone does not verify database availability. Example credentials are for local development only. Keep `.env` untracked and inject production values through the deployment environment.
 
 ```sh
 pnpm build
@@ -80,7 +80,7 @@ pnpm build
 
 Use `pnpm format` to format application code and current tooling/docs. The supplied plans, ADRs and PR-00 snapshot are excluded from root formatting to preserve their contents; the compatibility spike also remains outside root lint, build and tests.
 
-Jest runs JavaScript compiled by the pinned TypeScript compiler into `.test-dist/`, preserving ESM and Nest decorator metadata. `pnpm test` cleans/rebuilds this output first. Tests cover the environment schema, isolated startup failures, `.env` loading/precedence, HTTP payload validation, built-in errors and generated OpenAPI constraints. HTTP tests use native `fetch` against ephemeral loopback ports; servers and temporary files are cleaned up afterwards. Test environment values are synthetic and do not require a database or local `.env`. Node's `--experimental-vm-modules` is required for Jest ESM and may print an experimental warning. No ts-jest/Babel transformer is needed. Database integration/E2E infrastructure will be introduced in its own milestone.
+Jest runs JavaScript compiled by the pinned TypeScript compiler into `.test-dist/`, preserving ESM and Nest decorator metadata. `pnpm test` cleans/rebuilds this output first. Tests cover the environment schema, isolated startup failures, `.env` loading/precedence, HTTP payload validation, built-in errors and generated OpenAPI constraints. HTTP tests use native `fetch` against ephemeral loopback ports; servers and temporary files are cleaned up afterwards. Test environment values are synthetic and do not require a database or local `.env`. Node's `--experimental-vm-modules` is required for Jest ESM and may print an experimental warning. No ts-jest/Babel transformer is needed. Run the separate database integration suite as described below.
 
 The original spike has its own installation and lockfile:
 
@@ -90,6 +90,26 @@ pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
 pnpm --ignore-workspace typecheck
 pnpm --ignore-workspace test
 ```
+
+## PostgreSQL and migrations
+
+Create a local PostgreSQL database and set `DATABASE_URL` in `.env`. The example URL expects database `app` and a local development role `app`; replace it with your own setup. No database, role or schema is created automatically by the API.
+
+```sh
+pnpm db:migrate                         # Apply committed migrations
+pnpm db:generate --name=describe_change # Generate SQL after editing a schema
+```
+
+Review generated SQL and commit it together with `migrations/meta/`. Apply migrations explicitly before running code that needs the new schema. Startup never runs migrations or pushes a schema. `example_records` is a demonstration table, with no HTTP CRUD endpoint. See the [database guide](docs/database.md) for schema organization, DI, shutdown and the production migration procedure.
+
+With Docker Desktop (or another supported container runtime) running:
+
+```sh
+docker info
+pnpm test:integration
+```
+
+This command starts a disposable `postgres:17-alpine` container, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Each run has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite. Run the commands sequentially because they both rebuild `.test-dist/`.
 
 ## Git conventions
 
@@ -109,7 +129,9 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [PR-00 compatibility evidence](docs/pr-00-compatibility.md)
 - [PR-01 verification results](docs/pr-01-verification.md)
 - [PR-02 verification results](docs/pr-02-verification.md)
+- [Database and migration guide](docs/database.md)
+- [PR-03 verification results](docs/pr-03-verification.md)
 - [Browser auth transport](docs/adr/001-auth-transport.md)
 - [Bearer session model](docs/adr/002-auth-session-model.md)
 
-PR-03 adds persistence; CI/Docker follow in PR-04. Authentication and authorization remain later milestones. Optional extensions remain opt-in.
+CI and Docker packaging follow in PR-04. Authentication and authorization remain later milestones. Optional extensions remain opt-in.
