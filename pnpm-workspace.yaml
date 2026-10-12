@@ -8,4 +8,5 @@ onlyBuiltDependencies:
 # Hooks are installed explicitly with pnpm hooks:install.
 ignoredBuiltDependencies:
   - '@nestjs/core'
+  - '@scarf/scarf'
   - lefthook
