@@ -1,11 +1,22 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Logger } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  InternalServerErrorException,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { describe, expect, it } from '@jest/globals';
 import type { ErrorEvent } from '@sentry/nestjs';
 import { loadEnvironment } from '../src/config/load-environment.js';
 import { telemetryEnvironmentSchema } from '../src/config/telemetry.js';
+import { shouldReportHttpException } from '../src/modules/observability/observability-exception.filter.js';
+import {
+  isStatementAttributeKey,
+  scrubSpanForExport,
+} from '../src/modules/observability/open-telemetry.js';
 import {
   sanitizeErrorMessage,
   serializeError,
@@ -405,6 +416,79 @@ describe('Telemetry configuration', () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe('OpenTelemetry statement privacy', () => {
+  it('recognizes statement attribute keys without content regexes', () => {
+    for (const key of [
+      'db.query.text',
+      'db.statement',
+      'db.statement.parameters',
+      'db.postgresql.values',
+      'db.connection_string',
+      'db.query.parameter.0',
+      'db.operation.parameter.1',
+    ])
+      expect(isStatementAttributeKey(key)).toBe(true);
+    for (const key of [
+      'db.system.name',
+      'db.namespace',
+      'db.operation.name',
+      'server.address',
+      'server.port',
+      'http.route',
+    ])
+      expect(isStatementAttributeKey(key)).toBe(false);
+  });
+
+  it('removes statement attributes and status messages before export', () => {
+    const span: {
+      status: { code: number; message?: string };
+      setStatus(next: { code: number }): void;
+      attributes: Record<string, unknown>;
+    } = {
+      status: { code: 2, message: `select '${'secret'}'` },
+      setStatus(next) {
+        this.status = next;
+      },
+      attributes: {
+        'db.system.name': 'postgresql',
+        'db.namespace': 'app',
+        'db.query.text': `select '${'inline-sql-secret-literal-9f2a'}'`,
+        'db.statement': 'select 1',
+        'db.postgresql.values': ['x'],
+        'server.address': '127.0.0.1',
+      },
+    };
+    scrubSpanForExport(span);
+    expect(span.status).toEqual({ code: 2 });
+    expect(span.attributes).toEqual({
+      'db.system.name': 'postgresql',
+      'db.namespace': 'app',
+      'server.address': '127.0.0.1',
+    });
+  });
+});
+
+describe('HttpException reporting policy', () => {
+  it('reports unexpected 5xx HttpExceptions and ignores 4xx and 503', () => {
+    expect(
+      shouldReportHttpException(new InternalServerErrorException('boom')),
+    ).toBe(true);
+    expect(
+      shouldReportHttpException(
+        new HttpException('upstream', HttpStatus.BAD_GATEWAY),
+      ),
+    ).toBe(true);
+    expect(
+      shouldReportHttpException(new ServiceUnavailableException('down')),
+    ).toBe(false);
+    expect(
+      shouldReportHttpException(
+        new HttpException('nope', HttpStatus.NOT_FOUND),
+      ),
+    ).toBe(false);
   });
 });
 

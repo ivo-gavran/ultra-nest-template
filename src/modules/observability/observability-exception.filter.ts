@@ -1,4 +1,10 @@
-import { Catch, HttpStatus, IntrinsicException, Logger } from '@nestjs/common';
+import {
+  Catch,
+  HttpException,
+  HttpStatus,
+  IntrinsicException,
+  Logger,
+} from '@nestjs/common';
 import type { ArgumentsHost, HttpServer } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import type { AbstractHttpAdapter } from '@nestjs/core';
@@ -8,14 +14,29 @@ import { normalizeMethod, routeTemplate } from './http-observability.js';
 import { errorType, sanitizeErrorMessage } from './redaction.js';
 import { captureUnexpectedError } from './sentry.js';
 
-// HttpExceptions (400/401/403/404/409/413/429/503...) are expected outcomes
-// and keep Nest's handling unchanged. Anything else gets Nest's response
-// body (http-errors from body parsing keep their status; others become a
-// generic 500) and, unless it is a client error, exactly one error log,
-// span exception and Sentry event. Nothing is rethrown or swallowed.
+// Reporting policy:
+// - 4xx HttpException / client http-errors: expected; Nest response only.
+// - 503 HttpException: deliberate dependency/capacity outcomes (readiness,
+//   sanitized persistence failures); Nest response only — no Sentry noise.
+// - Other 5xx HttpException (including InternalServerErrorException): Nest
+//   response preserved; exactly one log, span exception and Sentry event.
+// - Non-HttpException: Nest body (http-errors keep status; others → generic
+//   500); report unless IntrinsicException or client http-error.
+// Responses are never rewritten to expose stacks. Nothing is rethrown or
+// swallowed; non-HTTP exceptions are reported only from handleUnknownError.
 @Catch()
 export class ObservabilityExceptionFilter extends BaseExceptionFilter {
   private readonly logger = new Logger('ExceptionsHandler');
+
+  override catch(exception: unknown, host: ArgumentsHost): void {
+    if (exception instanceof HttpException) {
+      super.catch(exception, host);
+      if (shouldReportHttpException(exception))
+        this.report(exception, host.switchToHttp().getRequest<Request>());
+      return;
+    }
+    super.catch(exception, host);
+  }
 
   override handleUnknownError(
     exception: unknown,
@@ -56,4 +77,11 @@ export class ObservabilityExceptionFilter extends BaseExceptionFilter {
       route: routeTemplate(request),
     });
   }
+}
+
+export function shouldReportHttpException(exception: HttpException): boolean {
+  const status = exception.getStatus();
+  // Deliberate operational unavailability (readiness / sanitized storage
+  // failures) uses HTTP 503 and must not create Sentry noise.
+  return status >= 500 && status !== 503;
 }

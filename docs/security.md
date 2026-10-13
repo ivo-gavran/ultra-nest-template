@@ -169,9 +169,14 @@ PR-12 adds the following, all allowlist-based (see the
   quoted values, IPs and long tokens masked. Error own-properties (Drizzle
   query params, pg `detail`) are never serialized.
 - Spans and metrics never record raw URLs, query strings, headers, client
-  IPs, user agents, SQL parameter values, user/session IDs or connection
-  strings. Sentry sends no request data, users, breadcrumbs, local
-  variables or source lines.
+  IPs, user agents, SQL statement text, SQL parameter values, user/session
+  IDs or connection strings. A pre-export span processor removes
+  `db.query.text` / `db.statement` and related keys by name (the pg
+  instrumentation attaches statement text even with enhanced reporting
+  off). Sentry sends no request data, users, breadcrumbs, local variables
+  or source lines.
+- Explicit `HttpException` 5xx values other than 503 are reported once to
+  Sentry; 4xx and deliberate 503 outcomes are not.
 - `X-Request-ID` is accepted only as 16–64 `A-Za-z0-9_-` characters,
   otherwise a random UUID is generated. It is client-controllable and must
   never be treated as identity, authorization or a rate-limit key.

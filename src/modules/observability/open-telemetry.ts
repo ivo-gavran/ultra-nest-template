@@ -51,14 +51,47 @@ const DURATION_BUCKETS = [
   0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10,
 ];
 
-// Instrumentations may put raw driver error messages (which can quote SQL
-// input) into span status. Status code and the exception event's sanitized
-// type/code are kept; free-text status messages are not.
-const statusMessageRedactor: SpanProcessor = {
+// Statement / parameter attribute keys that must never leave the process.
+// `@opentelemetry/instrumentation-pg` always sets `db.query.text` from the
+// query string (even with `enhancedDatabaseReporting: false`); legacy
+// semconv and enhanced-mode keys are listed for defense in depth.
+const STATEMENT_ATTRIBUTE_KEYS = new Set([
+  'db.query.text',
+  'db.statement',
+  'db.statement.parameters',
+  'db.postgresql.values',
+  'db.connection_string',
+]);
+
+export function isStatementAttributeKey(key: string): boolean {
+  return (
+    STATEMENT_ATTRIBUTE_KEYS.has(key) ||
+    key.startsWith('db.query.parameter') ||
+    key.startsWith('db.operation.parameter') ||
+    key.startsWith('db.statement.')
+  );
+}
+
+// Strip statement text and free-text status messages before any exporter
+// sees the span. Safe metadata (db.system.name, db.namespace, operation
+// name, server address/port) and timing are preserved. This is not a
+// content regex scrubber: known statement attribute keys are removed.
+export function scrubSpanForExport(span: {
+  status: { code: number; message?: string };
+  setStatus(status: { code: number }): void;
+  attributes: Record<string, unknown>;
+}): void {
+  if (span.status.message !== undefined)
+    span.setStatus({ code: span.status.code });
+  for (const key of Object.keys(span.attributes)) {
+    if (isStatementAttributeKey(key)) delete span.attributes[key];
+  }
+}
+
+const privacySpanProcessor: SpanProcessor = {
   onStart: () => undefined,
   onEnding: (span) => {
-    if (span.status.message !== undefined)
-      span.setStatus({ code: span.status.code });
+    scrubSpanForExport(span);
   },
   onEnd: () => undefined,
   forceFlush: () => Promise.resolve(),
@@ -116,7 +149,7 @@ export function startOpenTelemetry(
       linkCountLimit: 8,
     },
     spanProcessors: [
-      statusMessageRedactor,
+      privacySpanProcessor,
       new BatchSpanProcessor(
         overrides.spanExporter ??
           new OTLPTraceExporter({

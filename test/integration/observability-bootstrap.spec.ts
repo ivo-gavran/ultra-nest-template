@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { SQL_PRIVACY_PROBE_LITERAL } from '../../src/modules/observability/sql-privacy-probe.controller.js';
 import { authEnvironment } from '../helpers/auth-environment.js';
 import { startTestDatabase } from '../helpers/postgres.js';
 
@@ -33,9 +34,19 @@ interface OtlpSpan {
   parentSpanId?: string;
   name: string;
   kind: number;
+  startTimeUnixNano?: string;
+  endTimeUnixNano?: string;
   attributes: OtlpAttribute[];
   scope: string;
 }
+
+const STATEMENT_ATTRIBUTE_KEYS = [
+  'db.query.text',
+  'db.statement',
+  'db.statement.parameters',
+  'db.postgresql.values',
+  'db.connection_string',
+];
 
 async function freePort() {
   const server = createNetServer();
@@ -126,6 +137,8 @@ describe('Production bootstrap with OpenTelemetry (compiled ESM main.js)', () =>
           'authorization=Bearer%20collector-secret-5d1e',
         OTEL_TRACES_SAMPLER_ARG: '1',
         OTEL_METRIC_EXPORT_INTERVAL: '300000',
+        // Enables the test-only SQL privacy probe controller.
+        OBSERVABILITY_SQL_PROBE: '1',
         // Sentry enabled against the same receiver: it must send nothing
         // without errors and must not add spans, hooks or a tracer.
         SENTRY_DSN: `${collectorUrl.replace('://', '://public@')}/1`,
@@ -175,6 +188,13 @@ describe('Production bootstrap with OpenTelemetry (compiled ESM main.js)', () =>
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     expect(me.status).toBe(200);
+
+    const probeRequestId = 'bootstrap-sql-probe-001';
+    const probe = await fetch(`${base}/observability-sql-probe`, {
+      headers: { 'X-Request-ID': probeRequestId },
+    });
+    expect(probe.status).toBe(200);
+    expect(await probe.json()).toEqual({ ok: true });
     expect(received.filter((item) => item.path === '/v1/metrics')).toHaveLength(
       0,
     );
@@ -192,12 +212,16 @@ describe('Production bootstrap with OpenTelemetry (compiled ESM main.js)', () =>
     const register = server.find(
       (span) => span.name === 'POST /api/v1/auth/register',
     )!;
+    const probeSpan = server.find(
+      (span) => span.name === 'GET /api/v1/observability-sql-probe',
+    )!;
     expect(register).toMatchObject({
       traceId,
       parentSpanId: parentId,
       kind: 2,
     });
     expect(server.map((span) => span.name).sort()).toEqual([
+      'GET /api/v1/observability-sql-probe',
       'GET /api/v1/users/me',
       'POST /api/v1/auth/register',
     ]);
@@ -213,14 +237,27 @@ describe('Production bootstrap with OpenTelemetry (compiled ESM main.js)', () =>
           span.traceId === traceId && span.parentSpanId === register.spanId,
       ),
     ).toBe(true);
+    const probeChildren = pg.filter(
+      (span) => span.parentSpanId === probeSpan.spanId,
+    );
+    expect(probeChildren.length).toBeGreaterThan(0);
     for (const span of pg) {
       expect(serverIds.has(span.parentSpanId!)).toBe(true);
       expect(attribute(span, 'db.system.name')).toEqual({
         stringValue: 'postgresql',
       });
-      expect(typeof attribute(span, 'db.query.text')?.stringValue).toBe(
-        'string',
+      expect(span.startTimeUnixNano).toMatch(/^\d+$/);
+      expect(span.endTimeUnixNano).toMatch(/^\d+$/);
+      expect(BigInt(span.endTimeUnixNano!)).toBeGreaterThan(
+        BigInt(span.startTimeUnixNano!),
       );
+      for (const key of STATEMENT_ATTRIBUTE_KEYS)
+        expect(attribute(span, key)).toBeUndefined();
+      for (const { key } of span.attributes) {
+        expect(key.startsWith('db.query.parameter')).toBe(false);
+        expect(key.startsWith('db.operation.parameter')).toBe(false);
+        expect(key.startsWith('db.statement.')).toBe(false);
+      }
     }
     for (const span of spans)
       for (const { key } of span.attributes) {
@@ -282,6 +319,9 @@ describe('Production bootstrap with OpenTelemetry (compiled ESM main.js)', () =>
       databasePassword,
       'collector-secret-5d1e',
       authEnvironment.AUTH_SIGNING_KEY,
+      SQL_PRIVACY_PROBE_LITERAL,
+      'db.query.text',
+      'db.statement',
     ])
       expect({ leaked, found: everything.includes(leaked) }).toEqual({
         leaked,

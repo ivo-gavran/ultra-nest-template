@@ -9,7 +9,16 @@ import {
   expect,
   it,
 } from '@jest/globals';
-import { Controller, Get, Logger, Post } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  InternalServerErrorException,
+  Logger,
+  Post,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { Public } from '@nestjs/authentication';
 import { InjectDrizzle } from '@nestjs/drizzle';
@@ -95,6 +104,21 @@ class ObservabilityTestController {
     } finally {
       gate.done.resolve();
     }
+  }
+
+  @Get('internal-error')
+  internalError(): never {
+    throw new InternalServerErrorException('deliberate internal failure');
+  }
+
+  @Get('unavailable')
+  unavailable(): never {
+    throw new ServiceUnavailableException('dependency unavailable');
+  }
+
+  @Get('bad-gateway')
+  badGateway(): never {
+    throw new HttpException('upstream failed', HttpStatus.BAD_GATEWAY);
   }
 }
 
@@ -454,6 +478,116 @@ describe('Observability with real PostgreSQL', () => {
           leaked,
           found: false,
         });
+    });
+
+    it('reports explicit 5xx HttpExceptions once and keeps deliberate 503 quiet', async () => {
+      const cases: {
+        label: string;
+        path: string;
+        status: number;
+        report: boolean;
+        errorType: string;
+        body: Record<string, unknown>;
+      }[] = [
+        {
+          label: 'internal',
+          path: 'observability-test/internal-error',
+          status: 500,
+          report: true,
+          errorType: 'InternalServerErrorException',
+          body: {
+            statusCode: 500,
+            message: 'deliberate internal failure',
+            error: 'Internal Server Error',
+          },
+        },
+        {
+          label: 'unavailable',
+          path: 'observability-test/unavailable',
+          status: 503,
+          report: false,
+          errorType: 'ServiceUnavailableException',
+          body: {
+            statusCode: 503,
+            message: 'dependency unavailable',
+            error: 'Service Unavailable',
+          },
+        },
+        {
+          label: 'bad-gateway',
+          path: 'observability-test/bad-gateway',
+          status: 502,
+          report: true,
+          errorType: 'HttpException',
+          body: {
+            statusCode: 502,
+            message: 'upstream failed',
+          },
+        },
+      ];
+
+      for (const { label, path, status, report, body } of cases) {
+        const requestId = id(label);
+        const response = await call(requestId, path);
+        const text = await response.text();
+        expect({ label, status: response.status }).toEqual({ label, status });
+        expect(response.headers.get('x-request-id')).toBe(requestId);
+        expect(JSON.parse(text)).toEqual(body);
+        expect(text).not.toMatch(/\s+at \S+:\d+:\d+|stack|postgres/i);
+        await waitFor(() => completions(requestId).length > 0, `${label} log`);
+        expect(completions(requestId)).toEqual([
+          expect.objectContaining({
+            level: 'warn',
+            message: 'http.request.completed',
+            statusCode: status,
+            route: `/api/v1/${path}`,
+          }),
+        ]);
+        const failures = logsFor(requestId).filter(
+          (record) => record.message === 'http.request.failed',
+        );
+        expect(failures).toHaveLength(report ? 1 : 0);
+      }
+
+      await flushTelemetry();
+      const events = sentry.events();
+      expect(events).toHaveLength(2);
+      expect(events.map((event) => event.tags?.request_id).sort()).toEqual(
+        [id('bad-gateway'), id('internal')].sort(),
+      );
+
+      const exported = spans.getFinishedSpans().map(spanView);
+      for (const { label, path, status, report, errorType } of cases) {
+        const requestId = id(label);
+        const failure = logsFor(requestId).find(
+          (record) => record.message === 'http.request.failed',
+        );
+        const span = exported.find(
+          (item) =>
+            item.name === `GET /api/v1/${path}` &&
+            item.attributes['http.response.status_code'] === status,
+        )!;
+        expect(span.status).toEqual({ code: 2 });
+        expect(span.status).not.toHaveProperty('message');
+        if (report) {
+          expect(failure).toMatchObject({
+            context: 'ExceptionsHandler',
+            message: 'http.request.failed',
+            error: { type: errorType },
+          });
+          expect(span.events).toEqual([
+            expect.objectContaining({
+              name: 'exception',
+              attributes: expect.objectContaining({
+                'exception.type': errorType,
+              }),
+            }),
+          ]);
+          expect(span.traceId).toBe(failure!.traceId);
+        } else {
+          expect(span.events).toEqual([]);
+        }
+      }
     });
 
     it('keeps request IDs isolated across concurrent requests and after body parsing', async () => {

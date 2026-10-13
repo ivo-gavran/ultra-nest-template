@@ -73,7 +73,7 @@ Events:
 | ------------------------- | ------- | ------------------------------------------------------------------------------------- |
 | `http.request.completed`  | `log`   | Once per response that was fully sent (`warn` for 5xx). Route omitted when unmatched. |
 | `http.request.aborted`    | `warn`  | Once when the client disconnected before the response finished; no status code.       |
-| `http.request.failed`     | `error` | Once per unexpected (non-`HttpException`, non-4xx) error, with the sanitized error.   |
+| `http.request.failed`     | `error` | Once per unexpected error (non-4xx, non-503 `HttpException`, or non-HTTP throw).      |
 | `telemetry.export.failed` | `warn`  | OTLP export error, at most once per minute, no endpoint or error text.                |
 | `auth.session.revoked`    | `log`   | Unchanged from PR-07.                                                                 |
 
@@ -89,10 +89,17 @@ The observability middleware runs before every other middleware (IP validation, 
 
 ## Errors and Sentry
 
-Expected outcomes are `HttpException`s (400, 401, 403, 404, 409, 413, 429, 503, ...). They keep Nest's existing responses and are not reported. For anything else, the global `ObservabilityExceptionFilter` extends Nest's `BaseExceptionFilter`:
+The global `ObservabilityExceptionFilter` overrides Nest's `BaseExceptionFilter.catch` and `handleUnknownError`. Nest's `catch` only calls `handleUnknownError` for non-`HttpException` throws, so reporting for explicit HTTP exceptions lives in `catch`.
 
-- Body-parser `http-errors` keep their status and body (for example 413), and client errors among them are not reported.
-- Every other error returns Nest's generic `{"statusCode":500,"message":"Internal server error"}` with `X-Request-ID`. It produces exactly one `http.request.failed` log, one span exception event (sanitized type/message, ERROR status) and one Sentry event. Nothing is swallowed or rethrown, and Nest's default `ExceptionsHandler` log is replaced rather than duplicated.
+| Outcome                                                              | HTTP response                                                         | Report (log + span exception + Sentry)                                                                                    |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `HttpException` 4xx                                                  | Nest's existing status and body                                       | No                                                                                                                        |
+| `HttpException` 503 (`ServiceUnavailableException` and peers)        | Nest's existing status and body                                       | No — deliberate dependency/capacity outcomes (readiness, sanitized persistence failures) must not create monitoring noise |
+| Other `HttpException` 5xx (including `InternalServerErrorException`) | Nest's existing status and body                                       | Yes, exactly once                                                                                                         |
+| Body-parser / `http-errors` client errors                            | Their status and body                                                 | No                                                                                                                        |
+| Any other throw                                                      | Nest's generic `{"statusCode":500,"message":"Internal server error"}` | Yes, exactly once (unless `IntrinsicException`)                                                                           |
+
+Reported events use a sanitized type/message, set the active span to ERROR, and never rewrite the response to expose stacks. Non-HTTP exceptions are reported only from `handleUnknownError`, so they are not double-counted when `catch` delegates to it.
 
 Sentry is enabled exactly when `SENTRY_DSN` is set. Its privacy settings are explicit:
 
@@ -108,12 +115,12 @@ Instead of `@opentelemetry/instrumentation-http`, HTTP server spans are created 
 
 - Name: `METHOD /route/template` (for example `GET /api/v1/users/:id`); just `METHOD` when unmatched (404, failures before routing). Methods outside the standard set become `_OTHER`.
 - Attributes: `http.request.method`, `http.route`, `http.response.status_code`, `error.type` (`5xx` status or `aborted`). Status ERROR for 5xx.
-- PostgreSQL child spans come from `instrumentation-pg` with `requireParentSpan` (no orphan pool/health spans), `ignoreConnectSpans`, no enhanced reporting (no parameter values), no SQLCommenter and no trace-context injection into SQL. Attributes include `db.system.name`, `db.namespace`, `server.address`/`port` and the parameterized `db.query.text`. They never include parameter values, `db.user` or connection strings.
-- A span processor drops free-text status messages before export (pg puts raw driver errors there). pg exception events are already reduced to type and SQLSTATE.
+- PostgreSQL child spans come from `instrumentation-pg` with `requireParentSpan` (no orphan pool/health spans), `ignoreConnectSpans`, `enhancedDatabaseReporting: false` (no parameter values), no SQLCommenter and no trace-context injection into SQL. Safe attributes kept after privacy scrubbing: `db.system.name`, `db.namespace`, `db.operation.name` when present, `server.address`/`port`. Parent-child links and span timing are preserved.
+- The installed pg instrumentation always attaches `db.query.text` from the raw query string even when enhanced reporting is off. A privacy span processor runs in `onEnding` (before any exporter) and **removes** `db.query.text`, `db.statement`, `db.postgresql.values`, `db.connection_string` and related `db.query.parameter*` / `db.statement.*` keys by name — not by content regex. Free-text status messages are cleared the same way (pg puts raw driver errors there). pg exception events are already reduced to type and SQLSTATE by the instrumentation.
 - Drizzle's own tracer is inactive in drizzle-orm 0.45.4. Tests assert that no `drizzle.*` attributes are exported.
 - Span limits: 64 attributes, 2048-character values, 32 events. Batching: queue 2048, batch 512, 5 s delay, export timeout `OTEL_EXPORTER_OTLP_TIMEOUT`.
 
-Privacy is applied when data is collected, by never recording the data, rather than by filtering at export.
+HTTP, log and Sentry privacy is applied at collection time (allowlists and redaction). SQL statement text is an exception: the instrumentation records it, then the span processor strips statement attributes before export so collectors never see them.
 
 ## Metrics
 
@@ -146,9 +153,10 @@ Every request served before the HTTP server closes is exported. Nest runs shutdo
 
 ## Tests
 
-- `test/observability.spec.ts` covers ID validation, concurrency isolation, redaction, the logger allowlist, telemetry configuration and Sentry scrubbing.
+- `test/observability.spec.ts` covers ID validation, concurrency isolation, redaction, the logger allowlist, statement-attribute stripping, HttpException reporting policy, telemetry configuration and Sentry scrubbing.
 - `test/integration/observability.spec.ts` runs against real PostgreSQL with an in-memory span exporter, a pull metric reader and a Sentry recording transport. It covers:
-  - the 400/401/403/404/413/429/500 matrix, with one log each and Sentry/error log/span exception only for 500;
+  - the 400/401/403/404/413/429/500 matrix, with one log each and Sentry/error log/span exception only for unexpected 500;
+  - explicit `InternalServerErrorException` / 502 reported once, deliberate 503 quiet, Nest response bodies preserved, no stacks;
   - leak checks;
   - concurrency, body parsing and invalid IDs;
   - CORS exposure;
@@ -159,5 +167,5 @@ Every request served before the HTTP server closes is exported. Nest runs shutdo
   - disabled telemetry (no connections);
   - refused and black-holed collectors;
   - flush-once.
-- `test/integration/observability-bootstrap.spec.ts` spawns compiled `main.js` with a local OTLP receiver and Sentry pointed at it. It verifies early instrumentation (pg child spans), traceparent continuation, export of spans and metrics once at SIGTERM, collector headers, no Sentry traffic or extra tracers, and no secrets in output.
+- `test/integration/observability-bootstrap.spec.ts` spawns compiled `main.js` with a local OTLP receiver and Sentry pointed at it. It verifies early instrumentation (pg child spans), traceparent continuation, export of spans and metrics once at SIGTERM, collector headers, no Sentry traffic or extra tracers, and no secrets in output. With `OBSERVABILITY_SQL_PROBE=1` it executes a query whose SQL text embeds a sensitive literal and asserts the literal and statement attributes are absent from the OTLP payload while pg children, parent links and duration remain.
 - `scripts/verify-compose.sh` checks disabled-telemetry JSON logs in the production image, OTLP export from the image to a receiver on the Compose network, and an unreachable collector.
