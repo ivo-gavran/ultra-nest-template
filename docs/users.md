@@ -2,7 +2,7 @@
 
 PR-09 adds account endpoints in `UsersModule`, using the existing PostgreSQL schema, package-backed scrypt, bearer authentication and explicit `UsersPolicy` abilities. Authentication endpoints remain in `AuthModule`. No migration, dependency or environment setting is added.
 
-PR-10 adds rate limiting in front of these endpoints (see [security](security.md)): password changes and administrator update/delete are limited to 3 requests per 60 s per authenticated user; profile update and account deletion rely on the stricter auth limiter plus the global 100/60 s per-IP limit. JSON bodies are capped at 16 KiB by default (413 beyond that).
+PR-10 adds rate limiting in front of these endpoints (see [security](security.md)): password changes and administrator update/delete have an additional limit of 3 requests per 60 s per IP per handler, shared by users behind that IP. User reads, profile updates and self-deletion use only the global 100/60 s per-IP, per-handler limit. These guards run before authentication and do not claim per-user isolation. JSON bodies are capped at 16 KiB by default (413 beyond that).
 
 ## HTTP contracts
 

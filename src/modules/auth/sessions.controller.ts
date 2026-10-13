@@ -12,9 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Can } from '@nestjs/authorization';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { SessionsPolicy } from '../authorization/policies/sessions.policy.js';
-import { authenticatedActorTracker } from '../security/throttle-trackers.js';
 import { CurrentSession, CurrentUser } from '@nestjs/authentication';
 import {
   ApiBearerAuth,
@@ -42,10 +40,7 @@ import { SessionsService } from './sessions.service.js';
 
 @Controller('auth')
 @ApiTags('Authentication sessions')
-// Session administration stays on the global limiter plus the stricter
-// `auth` limiter; it is exempt from the generic `account` limiter.
-@SkipThrottle({ account: true })
-@Throttle({ auth: { getTracker: authenticatedActorTracker } })
+// Session reads/revocations use global IP protection only.
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({
   description: 'Valid bearer authentication required',
@@ -74,7 +69,6 @@ export class SessionsController {
 
   @Delete('sessions/:id')
   @Can(SessionsPolicy, 'revokeOwn')
-  @SkipThrottle({ account: true })
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({
@@ -95,7 +89,6 @@ export class SessionsController {
 
   @Post('logout-all')
   @Can(SessionsPolicy, 'logoutAll')
-  @SkipThrottle({ account: true })
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({

@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+import type { RequestHandler } from 'express';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { Environment } from '../../config/environment.js';
@@ -10,8 +12,18 @@ export function applyTrustProxy(
   config: Pick<Environment, 'TRUST_PROXY'>,
 ): void {
   const trustProxy = config.TRUST_PROXY;
-  if (trustProxy === 'false') return;
-  (app as NestExpressApplication).set('trust proxy', trustProxy);
+  if (trustProxy !== 'false')
+    (app as NestExpressApplication).set('trust proxy', trustProxy);
+  // Express can accept arbitrary X-Forwarded-For text from trusted ingress.
+  // Reject invalid selected identities before the throttler creates a bucket.
+  const validateClientIp: RequestHandler = (request, response, next) => {
+    if (!isIP(request.ip ?? '')) {
+      response.status(400).json({ statusCode: 400, message: 'Bad Request' });
+      return;
+    }
+    next();
+  };
+  app.use(validateClientIp);
 }
 
 // Replaces the default parsers (registered by Nest at init) with capped

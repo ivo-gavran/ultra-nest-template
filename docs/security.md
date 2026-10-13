@@ -24,26 +24,47 @@ documentation. No new migration, no Redis, no custom throttling framework.
 `^12.0.0`; verified against installed 12.1.3 typings) is registered through
 `SecurityModule`, imported **before** AuthModule so its `APP_GUARD` runs
 before authentication/authorization (429 precedes credential checks and any
-scrypt work). Three named limiters run on every request:
+scrypt work). The official guard evaluates every configured named throttler;
+its documented `skipIf` option scopes the stricter policies using the
+`@RateLimit('auth' | 'account')` metadata. The `global` definition has no
+skip condition. A route without rate-limit metadata still gets global
+protection, including future controllers.
 
-| Limiter   | Default               | Applies to                                                                           |
-| --------- | --------------------- | ------------------------------------------------------------------------------------ |
-| `global`  | 100 / 60 s per IP     | Every route, public and authenticated                                                |
-| `auth`    | 5 / 60 s, 5 min block | Auth controller per IP + hashed email; sessions per user/IP; refresh/logout included |
-| `account` | 3 / 60 s per user     | Password change and admin user update/delete only                                    |
+| Limiter   | Default                                  | Applies to                                                                           |
+| --------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| `global`  | 100 / 60 s per IP per handler            | Every Nest controller route, public and authenticated                                |
+| `auth`    | 5 / 60 s per IP per handler; 5 min block | POST register, login, refresh and logout in AuthController, in addition to global    |
+| `account` | 3 / 60 s per IP per handler; 60 s block  | PATCH users/me/password, PATCH users/:id and DELETE users/:id, in addition to global |
 
-Other Users mutations (profile update, account deletion, session revoke,
-logout-all) are deliberately limited by `global` + `auth` only: they are no
-more scrypt-expensive than ordinary requests, and a destructive operation
-must not be DoS-lockable through a tiny per-account bucket. Login and
-registration use a tracker of `clientIP:sha256(normalizedEmail)` so
-nonexistent-account attempts throttle identically and no raw email enters a
-key or response; without a string email the tracker falls back to the client
-IP. Password change/admin mutations track the authenticated user ID (never a
-client-supplied ID), falling back to IP. An attacker sharing a victim's IP
-can still consume that IP's bucket — that is inherent to IP limiting and is
-why no hard account lockout exists: a throttled legitimate user simply waits
-for the window/block to expire.
+All other handlers use **global only**: public starter routes, users/me
+GET/PATCH/DELETE, administrator user reads, GET auth/sessions,
+DELETE auth/sessions/:id and POST auth/logout-all. Session revocation and
+self-deletion do not perform password hashing and retain the broader global
+budget so the small account bucket cannot block those recovery operations.
+
+Every limiter runs **before authentication** and uses the package's native
+IP tracker. There is no per-user or per-email limiter and no access to
+`request.user`, submitted email, passwords or unverified JWT claims for
+throttling. Five login attempts from an IP consume its auth budget regardless
+of the submitted email or whether an account exists; attempt six returns 429. Different authenticated users behind one IP share the same account
+budget. Changing a bearer token or body identifier cannot create a new
+bucket. A different validated client IP has its own budget; IPv6 clients
+share a /64 bucket under the package default, with IPv4-mapped addresses
+normalized to IPv4.
+
+The native key generator hashes controller name + handler name + limiter
+name + normalized IP. Thus budgets are **per handler**, not one aggregate
+budget across the API: login and registration have separate auth buckets,
+and password change and admin update/delete have separate account buckets.
+Changing an admin target ID does not change the handler bucket. No raw email
+or password enters a key. IP-only throttling avoids unauthenticated account
+lockout, but clients behind the same NAT can consume each other's budgets.
+True per-user limits would require enforcement after verified authentication;
+this starter does not claim that behavior.
+
+See the [official throttler documentation](https://docs.nestjs.com/security/rate-limiting)
+for named definitions and `skipIf`; the installed 6.7.1 guard and typings
+were inspected for exact key, header and IPv6 behavior.
 
 Responses carry `X-RateLimit-Limit-<name>`, `X-RateLimit-Remaining-<name>`
 and `X-RateLimit-Reset-<name>` (seconds); blocked responses carry
@@ -94,7 +115,12 @@ Set it only when every request reaches the app through known proxies:
 - Comma-separated IPs/CIDRs and/or Express presets `loopback`, `linklocal`,
   `uniquelocal` (e.g. `loopback`, `10.0.0.0/8,172.16.0.0/12`).
 
-`true` is rejected at startup; there is no blanket trust. Supported
+`true`, IPv4/IPv6 `/0` ranges (including nonzero host addresses with `/0`),
+empty CIDR prefixes, signed/fractional prefixes and out-of-range prefixes are
+rejected at startup. The selected Express `req.ip` must be a valid IP address;
+malformed trusted-ingress values receive a generic 400 before a throttle
+bucket is created. Untrusted forwarding headers are ignored, and Express
+stops at the nearest untrusted hop in an address chain. Supported
 production topology: internet → TLS-terminating proxy/LB (only hop allowed
 to reach the app; network policy must prevent direct client access) → app
 with `TRUST_PROXY` naming exactly that proxy. If clients can reach the app
@@ -137,8 +163,8 @@ logging, correlation IDs, Sentry and OpenTelemetry are PR-12, not PR-10.
 
 Production scrypt remains `logN=17, r=8, p=1` (~128 MiB per concurrent
 derivation on the libuv threadpool) — never weakened. Rate limiting runs in
-the guard phase, **before** any hashing/verification, bounding concurrent
-derivations per client. Registration performs one hash (`UsersService.create`)
+the guard phase, **before** any hashing/verification, limiting accepted
+derivations per client per window. This is not a concurrency semaphore. Registration performs one hash (`UsersService.create`)
 followed by one verification (the login path); the duplicate hash was
 reviewed and kept: registration intentionally reuses the verified-login path
 so the PR-09 stale-password precondition (`withVerifiedPassword`, user-row
@@ -157,8 +183,8 @@ headroom, and consider lower per-IP auth limits behind shared NATs.
 - Access JWTs remain valid until expiry (15 min) after refresh revocation,
   password change or logout-all (ADR-002).
 - IP-based limits are weak behind carrier-grade NAT and strong only with
-  correct proxy trust; hashed-email keys mitigate credential stuffing per
-  account without revealing account existence.
+  correct proxy trust. Shared NAT clients share budgets; distributed sources
+  can each consume their own budget. There is no additional email limiter.
 - Registration conflict responses can reveal email availability (documented
   in `docs/authentication.md`); enumeration-resistant registration UX is out
   of scope.

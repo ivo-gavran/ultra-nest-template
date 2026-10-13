@@ -13,15 +13,15 @@ const proxyEntrySchema = z.string().refine((value) => {
   const slash = value.lastIndexOf('/');
   if (slash === -1) return isIP(value) > 0;
   const address = value.slice(0, slash);
-  const prefix = Number(value.slice(slash + 1));
+  const prefixText = value.slice(slash + 1);
+  // Reject malformed prefixes explicitly: '' (Number('') is 0), signs, junk.
+  if (!/^\d+$/.test(prefixText)) return false;
+  const prefix = Number(prefixText);
   const version = isIP(address);
-  return (
-    version > 0 &&
-    Number.isInteger(prefix) &&
-    prefix >= 0 &&
-    prefix <= (version === 4 ? 32 : 128)
-  );
-}, 'Must be an IP address, CIDR range, loopback, linklocal or uniquelocal');
+  // /0 trusts every source for forwarding headers: blanket trust, reject.
+  if (prefix === 0) return false;
+  return version > 0 && prefix <= (version === 4 ? 32 : 128);
+}, 'Must be an IP address, CIDR range (prefix 1-32/1-128, no /0), loopback, linklocal or uniquelocal');
 
 export const databaseEnvironmentSchema = z.object({
   NODE_ENV: z

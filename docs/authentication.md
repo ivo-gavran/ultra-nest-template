@@ -25,7 +25,7 @@ Access JWTs have a **15-minute** lifetime and `typ=at+jwt`. Opaque refresh token
 
 ## Rate limiting (PR-10)
 
-Auth endpoints are throttled before any credential or scrypt work: 5 requests per 60 s per tracker (then a 5-minute block), where register/login track `clientIP:sha256(normalizedEmail)` and refresh/logout use the client IP. Session administration tracks the authenticated user (IP fallback). Nonexistent-account logins consume the same bucket and return the same generic 401 until limited. A global 100/60 s per-IP limit also applies. Limits are in-memory per process; see [security](security.md) for configuration (`RATE_LIMIT_*`, `TRUST_PROXY`, `REQUEST_BODY_LIMIT_BYTES`), proxy requirements and multi-instance storage.
+Register/login/refresh/logout are throttled before credential or scrypt work: 5 requests per 60 s per IP per handler, then a 5-minute block, in addition to the global 100/60 s per-IP, per-handler limit. Submitted emails and bearer identities do not affect throttle keys; rotating email addresses cannot bypass the IP budget. Existing and nonexistent accounts are limited consistently. Session listing, targeted revoke and logout-all receive only global protection. Clients behind the same IP share budgets; limits are in-memory per process. See [security](security.md) for configuration (`RATE_LIMIT_*`, `TRUST_PROXY`, `REQUEST_BODY_LIMIT_BYTES`), proxy requirements and multi-instance storage.
 
 ## HTTP and browser contract
 
