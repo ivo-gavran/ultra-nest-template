@@ -114,11 +114,21 @@ describe('Application HTTP conventions', () => {
       '/api/v1/auth/sessions',
       '/api/v1/auth/sessions/{id}',
       '/api/v1/greetings',
+      '/api/v1/health/live',
+      '/api/v1/health/ready',
       '/api/v1/users',
       '/api/v1/users/me',
       '/api/v1/users/me/password',
       '/api/v1/users/{id}',
     ]);
+    for (const path of ['/api/v1/health/live', '/api/v1/health/ready']) {
+      const endpoint = document.paths[path].get!;
+      expect(endpoint.security ?? []).toEqual([]);
+      expect(endpoint.responses).toHaveProperty('200');
+    }
+    expect(
+      document.paths['/api/v1/health/ready'].get!.responses,
+    ).toHaveProperty('503');
     const sessions = document.paths['/api/v1/auth/sessions'].get!;
     const revoke = document.paths['/api/v1/auth/sessions/{id}'].delete!;
     const logoutAll = document.paths['/api/v1/auth/logout-all'].post!;

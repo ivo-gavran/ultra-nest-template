@@ -14,7 +14,7 @@ docker compose up --build
 
 The API is available at `http://localhost:3000/api/v1`. The default stack runs compiled production code; Swagger is disabled unless `SWAGGER_ENABLED=true` is set. Rebuild after changing source. For watch-mode development, use the existing `pnpm start:dev` workflow with your development database.
 
-Compose starts PostgreSQL 17, waits for its `pg_isready` health check, then starts the API. The API's container health check uses the existing `/api/v1` endpoint; it proves HTTP availability, not database readiness. Dedicated readiness endpoints remain a later milestone.
+Compose starts PostgreSQL 17, waits for its `pg_isready` health check, then starts the API. The API's container health check uses `/api/v1/health/ready`: PostgreSQL must answer within one second. The fetch deadline is two seconds, within Docker's three-second command budget. `/api/v1/health/live` stays healthy during database outages; do not use readiness failure to trigger process restarts. See [health semantics and Kubernetes probes](health.md).
 
 | Setting                    | Local Compose behavior                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -70,7 +70,7 @@ All stages use `node:24.21.0-bookworm-slim`, matching `.nvmrc`. The tooling stag
 
 The final image copies only `package.json`, production `node_modules` and compiled `dist`. The manifest retains `type: module` for ESM. `.dockerignore` uses an allowlist so local dependencies, `.env`, Git metadata, tests, docs and the compatibility spike stay outside the build context. Both application and migration targets run as the unprivileged `node` user. Local Compose also runs the API with a read-only filesystem, temporary `/tmp`, no Linux capabilities and no privilege escalation.
 
-The exec-form `node dist/main.js` command receives SIGTERM directly, and the existing Nest shutdown hooks close the pool. Compose supplies a small init process and a 30-second stop grace period. No package-manager or shell wrapper sits between Node and runtime shutdown signals. The smoke test accepts API exit 0 or 143 (normal SIGTERM), requires PostgreSQL exit 0 and rejects forced-kill behavior.
+The exec-form `node dist/main.js` command receives SIGTERM directly, and the existing Nest shutdown hooks disable readiness, apply Terminus's five-second SIGTERM propagation window, drain HTTP requests, then let Drizzle close the pool. Compose supplies a small init process and a 30-second stop grace period. No package-manager or shell wrapper sits between Node and runtime shutdown signals. The smoke test accepts API exit 0 or 143 (normal SIGTERM), also exercises SIGINT (0 or 130), requires PostgreSQL exit 0 and rejects forced-kill behavior. Arbitrary stuck application handlers/hooks still need the supervisor's outer deadline; see [lifecycle limitations](health.md#shutdown-order-and-ownership).
 
 ## Continuous integration
 
@@ -87,7 +87,7 @@ The `Verify` job executes, in order:
 7. `pnpm build`
 8. `bash scripts/verify-compose.sh`
 
-The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It creates a unique project with an ephemeral host port and generated test credentials/signing key, then removes only its own containers and volume. It ignores the developer's `.env` and needs no repository secrets. Run it locally with Node and Docker on PATH to reproduce the container checks.
+The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window. It creates a unique project with an ephemeral host port and generated test credentials/signing key, then removes only its own containers and volume. It ignores the developer's `.env` and needs no repository secrets. Run it locally with Node and Docker on PATH to reproduce the container checks.
 
 Dependabot checks the root npm/pnpm manifest/lockfile, GitHub Actions and Docker definitions weekly. Development minor/patch updates are grouped; updates are PRs requiring review and CI. No automatic merge is configured. The historical PR-00 spike is intentionally not an update target. Review Node changes together across `.nvmrc`, package engines, Dockerfile and the smoke test; pnpm remains pinned consistently in the manifest, image and workflow.
 

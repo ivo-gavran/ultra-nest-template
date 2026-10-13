@@ -21,6 +21,7 @@ psql() {
 
 compose up --build --detach --wait --wait-timeout 120
 api_id="$(compose ps -q api)"
+api_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$api_id")"
 postgres_id="$(compose ps -q postgres)"
 address="$(compose port api 3000)"
 
@@ -40,6 +41,13 @@ const response = await fetch(`${base}/api/v1`);
 assert.equal(response.status, 200);
 assert.equal(await response.text(), 'Hello World!');
 assert.equal((await fetch(`${base}/docs`)).status, 404);
+for (const probe of ['live', 'ready']) {
+  const health = await fetch(`${base}/api/v1/health/${probe}`);
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(health.headers.get('x-ratelimit-limit-global'), null);
+}
+
 const invalid = await fetch(`${base}/api/v1/greetings`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ name: 'smoke', extra: true }),
@@ -156,9 +164,57 @@ JS
 test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
 test "$(psql 'select count(*) > 0 from auth_revoked_families r left join auth_token_families f using (family_id) where f.family_id is null;')" = t
 
+# Exercise the exact image HEALTHCHECK command, including a real outage.
+healthcheck() {
+  compose exec -T api sh -c "$(docker inspect --format '{{index .Config.Healthcheck.Test 1}}' "$api_id")"
+}
+healthcheck
+compose stop postgres
+if healthcheck; then echo 'Readiness HEALTHCHECK incorrectly passed with PostgreSQL stopped'; exit 1; fi
+API_URL="http://$address" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const base = `${process.env.API_URL}/api/v1/health`;
+for (let i = 0; i < 5; i++) {
+  assert.equal((await fetch(`${base}/live`)).status, 200);
+  const ready = await fetch(`${base}/ready`);
+  assert.equal(ready.status, 503);
+  assert.deepEqual(await ready.json(), {
+    status: 'error', info: {}, error: { postgres: { status: 'down' } }, details: { postgres: { status: 'down' } },
+  });
+}
+JS
+# Poll Docker's own recorded health state, bounded by its 10s interval / 3 retries.
+wait_for_health() {
+API_ID="$api_id" EXPECTED_HEALTH="$1" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { setTimeout } from 'node:timers/promises';
+let status;
+const deadline = Date.now() + 60000;
+do {
+  status = execFileSync('docker', ['inspect', '--format', '{{.State.Health.Status}}', process.env.API_ID], { encoding: 'utf8' }).trim();
+  if (status === process.env.EXPECTED_HEALTH) break;
+  await setTimeout(250);
+} while (Date.now() < deadline);
+assert.equal(status, process.env.EXPECTED_HEALTH);
+assert.equal(execFileSync('docker', ['inspect', '--format', '{{.State.Running}}', process.env.API_ID], { encoding: 'utf8' }).trim(), 'true');
+JS
+}
+wait_for_health unhealthy
+compose start postgres
+# Compose --wait rejects an already-unhealthy container immediately. Wait for
+# Docker to record the next successful probe before asserting the stack.
+wait_for_health healthy
+# Do not reconcile the stack with `up` here: some Compose versions recreate
+# containers after the migration image build, invalidating this recovery test.
+test "$(compose ps -q api)" = "$api_id"
+test "$(docker inspect --format '{{.State.StartedAt}}' "$api_id")" = "$api_started_at"
+healthcheck
+echo 'Readiness HEALTHCHECK fails on outage and recovers; liveness stays healthy without an API restart.'
+
 # Restart and then recreate containers; both must retain the named volume.
 compose restart postgres
-compose up --detach --wait --wait-timeout 120
+compose up --detach --no-recreate --wait --wait-timeout 120
 test "$(psql "select count(*) from example_records where label = 'persistence-smoke';")" = 1
 
 test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
@@ -168,7 +224,42 @@ api_id="$(compose ps -q api)"
 postgres_id="$(compose ps -q postgres)"
 test "$(psql "select count(*) from example_records where label = 'persistence-smoke';")" = 1
 
-compose stop
+# SIGINT takes the existing Nest shutdown path without the SIGTERM drain delay.
+docker kill --signal SIGINT "$api_id" > /dev/null
+API_ID="$api_id" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+const code = execFileSync('docker', ['wait', process.env.API_ID], { encoding: 'utf8', timeout: 30000 }).trim();
+assert.ok(['0', '130'].includes(code), `Unexpected SIGINT exit: ${code}`);
+JS
+compose up --detach --no-recreate --wait --wait-timeout 120
+address="$(compose port api 3000)"
+
+# The normal Compose stop path sends SIGTERM and retains its 30s outer limit.
+# Terminus's 5s delay makes readiness observable while Node still serves HTTP.
+COMPOSE_PROJECT="$project" API_URL="http://$address" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { setTimeout } from 'node:timers/promises';
+const stop = promisify(execFile)('docker', ['compose', '--env-file', '/dev/null', '--project-name', process.env.COMPOSE_PROJECT, 'stop', 'api'], { timeout: 35000 });
+const base = `${process.env.API_URL}/api/v1/health`;
+let draining = false;
+const deadline = Date.now() + 4000;
+try {
+  do {
+    const response = await fetch(`${base}/ready`, { signal: AbortSignal.timeout(1500) });
+    if (response.status === 503) {
+      draining = true;
+      assert.equal((await fetch(`${base}/live`)).status, 200);
+      break;
+    }
+    await setTimeout(50);
+  } while (Date.now() < deadline);
+  assert.equal(draining, true, 'Readiness must fail during the SIGTERM drain window');
+} finally { await stop; }
+JS
+compose stop postgres
 api_exit="$(docker inspect --format '{{.State.ExitCode}}' "$api_id")"
 postgres_exit="$(docker inspect --format '{{.State.ExitCode}}' "$postgres_id")"
 case "$api_exit" in 0|143) ;; *) echo "Unexpected API exit: $api_exit"; exit 1 ;; esac
