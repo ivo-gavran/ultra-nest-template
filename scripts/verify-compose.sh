@@ -80,7 +80,7 @@ const { items } = await listing.json();
 const current = items.find(item => item.current);
 assert.ok(current);
 assert.equal(current.status, 'active');
-const revoked = await fetch(`${base}/sessions/${current.id}`, { method: 'DELETE', headers });
+const revoked = await fetch(`${base}/sessions/${current.id}`, { method: 'DELETE', headers: { ...headers, Cookie: login.headers.get('set-cookie').split(';')[0] } });
 assert.equal(revoked.status, 204);
 assert.match(revoked.headers.get('set-cookie'), /HttpOnly/);
 assert.match(revoked.headers.get('set-cookie'), /Secure/);

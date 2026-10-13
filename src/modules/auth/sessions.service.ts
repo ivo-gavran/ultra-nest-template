@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   Injectable,
   Logger,
@@ -37,12 +38,26 @@ export class SessionsService {
     });
   }
 
-  async revoke(userId: string, sessionId: string): Promise<void> {
-    await this.safely(async () => {
+  async revoke(
+    userId: string,
+    sessionId: string,
+    refreshToken: string | undefined,
+  ): Promise<boolean> {
+    return this.safely(async () => {
+      // Bearer sid identifies the access token's login, not the browser cookie.
+      const clearCookie =
+        !!refreshToken &&
+        refreshToken.length <= 128 &&
+        (await this.repository.hasRefreshToken(
+          userId,
+          sessionId,
+          createHash('sha256').update(refreshToken).digest('base64url'),
+        ));
       if (await this.repository.revoke(userId, sessionId)) {
         // Deliberately omit actor/session identifiers, claims and request data.
         this.logger.log('auth.session.revoked');
       }
+      return clearCookie;
     });
   }
 

@@ -274,6 +274,8 @@ describe('Session administration with real PostgreSQL', () => {
         `sessions/${current.id.toUpperCase()}`,
         'DELETE',
         first.access,
+        undefined,
+        successor,
       );
       expect(response.status).toBe(204);
       expect(await response.text()).toBe('');
@@ -292,6 +294,102 @@ describe('Session administration with real PostgreSQL', () => {
     expect(
       (await page(first.access)).items.find((item) => item.id === current.id),
     ).toMatchObject({ status: 'revoked', current: true });
+  });
+
+  it.each([
+    ['A', 'A', true],
+    ['B', 'A', false],
+    ['B', 'B', true],
+  ] as const)(
+    'bearer A + cookie %s revoking %s clears cookie: %s',
+    async (cookieSession, targetSession, clears) => {
+      const a = await signIn();
+      const b = await signIn('login');
+      const idA = (await page(a.access)).items.find((item) => item.current)!.id;
+      const idB = (await page(b.access)).items.find((item) => item.current)!.id;
+      const response = await request(
+        `sessions/${targetSession === 'A' ? idA : idB}`,
+        'DELETE',
+        a.access,
+        undefined,
+        cookieSession === 'A' ? a.cookie : b.cookie,
+      );
+      expect(response.status).toBe(204);
+      if (clears) expectDeletion(response);
+      else expect(response.headers.get('set-cookie')).toBeNull();
+      expect(
+        (await refresh(targetSession === 'A' ? a.cookie : b.cookie)).status,
+      ).toBe(401);
+      expect(
+        (await refresh(targetSession === 'A' ? b.cookie : a.cookie)).status,
+      ).toBe(200);
+    },
+  );
+
+  it.each(['missing', 'invalid', 'unknown', 'overlong', 'foreign'] as const)(
+    'preserves %s cookies while revoking an owned session',
+    async (kind) => {
+      const a = await signIn();
+      const foreign = await signIn('register', foreignInput);
+      const id = (await page(a.access)).items[0].id;
+      const values = {
+        missing: '',
+        invalid: '__Host-refresh=invalid',
+        unknown: `__Host-refresh=${randomBytes(32).toString('base64url')}`,
+        overlong: `__Host-refresh=${'x'.repeat(129)}`,
+        foreign: foreign.cookie,
+      };
+      const response = await request(
+        `sessions/${id}`,
+        'DELETE',
+        a.access,
+        undefined,
+        values[kind],
+      );
+      expect(response.status).toBe(204);
+      expect(response.headers.get('set-cookie')).toBeNull();
+      expect((await refresh(a.cookie)).status).toBe(401);
+      expect((await refresh(foreign.cookie)).status).toBe(200);
+    },
+  );
+
+  it('does not clear a foreign-user cookie even when it matches the targeted session', async () => {
+    const a = await signIn();
+    const foreign = await signIn('register', foreignInput);
+    const id = (await page(foreign.access)).items[0].id;
+    for (const target of [id, randomUUID()]) {
+      const response = await request(
+        `sessions/${target}`,
+        'DELETE',
+        a.access,
+        undefined,
+        foreign.cookie,
+      );
+      expect(response.status).toBe(204);
+      expect(response.headers.get('set-cookie')).toBeNull();
+    }
+    expect(await db.select().from(revoked)).toHaveLength(0);
+    expect((await refresh(a.cookie)).status).toBe(200);
+    expect((await refresh(foreign.cookie)).status).toBe(200);
+  });
+
+  it('clears a persisted spent cookie without consuming or deleting refresh records', async () => {
+    const a = await signIn();
+    const id = (await page(a.access)).items[0].id;
+    const rotated = await refresh(a.cookie);
+    expect(rotated.status).toBe(200);
+    const before = await db.select().from(tokens);
+    const response = await request(
+      `sessions/${id}`,
+      'DELETE',
+      a.access,
+      undefined,
+      a.cookie,
+    );
+    expect(response.status).toBe(204);
+    expectDeletion(response);
+    expect(await db.select().from(tokens)).toEqual(before);
+    expect((await refresh(cookie(rotated))).status).toBe(401);
   });
 
   it('makes foreign, unknown, repeated and own non-current revocation indistinguishable', async () => {

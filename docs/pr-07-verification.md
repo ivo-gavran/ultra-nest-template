@@ -5,7 +5,7 @@ Verified locally on 2026-10-12, from `origin/main` commit `4782e1c` on branch `c
 ## Implemented behavior
 
 - Bearer-protected `GET /api/v1/auth/sessions` returns an owner-scoped public projection with deterministic timestamp/UUID keyset pagination, active/expired/revoked status and current identity from verified `@CurrentSession()` JWT `sid`.
-- `DELETE /api/v1/auth/sessions/:id` inserts an owner-filtered tombstone atomically. Unknown/foreign/repeated IDs return 204. Existing and subsequently written refresh successors remain revoked. Only newly inserted tombstones emit the credential-free `auth.session.revoked` audit event.
+- `DELETE /api/v1/auth/sessions/:id` inserts an owner-filtered tombstone atomically. Unknown/foreign/repeated IDs return 204. Existing and subsequently written refresh successors remain revoked. Cookie cleanup follows the presented cookie’s persisted owner/family association (see the 2026-10-13 correction below). Only newly inserted tombstones emit the credential-free `auth.session.revoked` audit event.
 - `POST /api/v1/auth/logout-all` invokes public `TokenService.revokeAll` with the verified current user's ID, preserving the existing user-row locking protocol. New logins ordered after logout-all are allowed.
 - Shared secure cookie scope, trusted-Origin checks, native CSRF, credentialed DELETE CORS, strict Zod inputs and auth no-store middleware cover successful and rejected requests. Storage failures return generic 503 without clearing retryable cookies.
 - No dependencies, migrations, second session store, authorization policies or later-milestone features were added.
@@ -65,3 +65,22 @@ Final manual review checked owner predicates in both outer listing and cursor an
 - Audit events intentionally omit identity attribution to avoid logging PII or sensitive claims. Retention/cleanup and table growth retain the documented PR-06 operational limits.
 - New cookie behavior was verified through real HTTP, PostgreSQL and production containers. The interactive browser fixture from PR-06 was not rerun for PR-07; no new browser compatibility certification is claimed. Same-site HTTPS/Lax restrictions remain.
 - No known implementation blocker remained after local verification. Hosted CI must be confirmed on the final PR commit before reporting completion. The next planned milestone is PR-08 authorization, outside this change.
+
+## Cookie association correction — 2026-10-13
+
+Review identified that matching the target UUID against the bearer `sid` could delete a different tab's refresh cookie, or leave the targeted cookie behind. Cleanup now hashes the presented cookie using the existing SHA-256/base64url format and queries the existing token/family tables. The token and family must both belong to the authenticated user, and the persisted family UUID must match the target. Bearer claims do not decide cookie cleanup. The separate atomic owner-filtered tombstone INSERT is unchanged.
+
+Missing, invalid, unknown, overlong and foreign-user cookies are preserved. A matching persisted cookie is cleared with the unchanged Secure/HttpOnly/SameSite=Lax/Path=/ and no Domain attributes, including repeated revocation and spent tokens. The lookup only returns a boolean, sanitizes storage errors and neither consumes tokens nor exposes their hashes. No dependencies, migrations or authentication infrastructure were added.
+
+Ten additional real PostgreSQL cases cover bearer A/cookie A/revoke A; bearer A/cookie B/revoke A and revoke B; missing/invalid/unknown/overlong/foreign cookies; a foreign cookie matching a foreign target; and cleanup of a spent token without deleting refresh records. Existing restart/idempotency checks now present the actual successor cookie; Compose's deletion check also sends a real cookie.
+
+Verification for this correction:
+
+- `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm build`: exit 0.
+- `pnpm test`: **90 passed**, 5 suites, 7.542 seconds.
+- `pnpm test:integration`: **99 passed**, 6 suites, 22.896 seconds, including **38 session cases** and the existing official concurrency contracts.
+- The first integration attempt could not find a container runtime because Docker Desktop was stopped. After starting Docker engine 29.8.2, the complete suite ran successfully against real PostgreSQL 17; nothing was skipped or mocked.
+- `bash scripts/verify-compose.sh`: exit 0; production image/runtime, explicit migrations, auth/session endpoints, persistence and clean shutdown passed (API 143, PostgreSQL 0).
+- `git diff --check`: exit 0. Hosted CI must be confirmed on the correction commit; its SHA/run/conclusion is recorded in PR #9 after GitHub completes.
+
+Manual review confirms the cookie association query scopes both persisted owners, resolves the target through its persisted family, and does not change atomic revocation or secure cookie attributes. The server can only match the cookie presented with the request; browser-side coordination is still needed if another tab changes cookies while a response is in flight.

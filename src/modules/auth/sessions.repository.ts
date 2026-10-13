@@ -53,6 +53,31 @@ export class SessionsRepository {
     }
   }
 
+  async hasRefreshToken(
+    userId: string,
+    sessionId: string,
+    tokenHash: string,
+  ): Promise<boolean> {
+    try {
+      const rows = await this.db
+        .select({ matched: sql<number>`1` })
+        .from(tokens)
+        .innerJoin(families, eq(tokens.familyId, families.familyId))
+        .where(
+          and(
+            eq(tokens.id, tokenHash),
+            eq(tokens.userId, userId),
+            eq(families.userId, userId),
+            eq(families.sessionId, sessionId),
+          ),
+        );
+      // Spent/expired records still establish cookie ownership for cleanup.
+      return rows.length > 0;
+    } catch {
+      throw new AuthStorageError();
+    }
+  }
+
   async revoke(userId: string, sessionId: string): Promise<boolean> {
     try {
       // One statement: ownership cannot change between lookup and revocation.

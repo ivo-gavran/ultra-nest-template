@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Cookies,
   Delete,
   Get,
   HttpCode,
@@ -60,17 +61,16 @@ export class SessionsController {
   @ApiOperation({
     summary: 'Revoke an owned session',
     description:
-      'Requires a trusted Origin. Unknown, foreign and already-revoked IDs also return 204. Existing access JWTs can remain valid for 15 minutes.',
+      'Requires a trusted Origin. Unknown, foreign and already-revoked IDs also return 204. Clears only a presented refresh cookie stored for this user and target session. Existing access JWTs can remain valid for 15 minutes.',
   })
   @ApiNoContentResponse()
   async revoke(
     @CurrentUser() user: PublicUser,
-    @CurrentSession() context: unknown,
+    @Cookies(cookieName) refreshToken: string | undefined,
     @Param({ schema: sessionParamsSchema }) params: SessionParams,
     @Res({ passthrough: true }) response: Response,
   ) {
-    await this.sessions.revoke(user.id, params.id);
-    if (params.id.toLowerCase() === currentSessionId(context)?.toLowerCase())
+    if (await this.sessions.revoke(user.id, params.id, refreshToken))
       response.clearCookie(cookieName, cookieOptions);
   }
 
