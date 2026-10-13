@@ -92,10 +92,58 @@ assert.ok(final.items.every(item => item.status === 'revoked'));
 console.log('Production container auth, session listing, targeted revoke and logout-all passed.');
 JS
 
+API_URL="http://$address" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const base = `${process.env.API_URL}/api/v1`;
+const input = { email: 'users-smoke@example.test', password: 'users smoke original password' };
+const origin = process.env.AUTH_TRUSTED_ORIGINS;
+const request = (path, method = 'GET', access = '', body, cookie = '') => fetch(`${base}/${path}`, {
+  method,
+  headers: { Origin: origin, ...(access ? { Authorization: `Bearer ${access}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), Cookie: cookie },
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+});
+const first = await request('auth/register', 'POST', '', input);
+assert.equal(first.status, 201);
+const { accessToken } = await first.json();
+const currentCookie = first.headers.get('set-cookie').split(';')[0];
+const second = await request('auth/login', 'POST', '', input);
+assert.equal(second.status, 200);
+const otherCookie = second.headers.get('set-cookie').split(';')[0];
+const profile = await request('users/me', 'GET', accessToken);
+assert.equal(profile.status, 200);
+assert.equal(profile.headers.get('cache-control'), 'no-store');
+assert.deepEqual(Object.keys(await profile.json()).sort(), ['createdAt', 'displayName', 'email', 'id', 'role', 'updatedAt']);
+assert.equal((await request('users/me')).status, 401);
+assert.equal((await request('users', 'GET', accessToken)).status, 403);
+assert.equal((await request('users/me', 'PATCH', accessToken, { role: 'admin' })).status, 400);
+assert.equal((await request('users/me', 'PATCH', accessToken, { displayName: 'Container profile' })).status, 200);
+const newPassword = 'users smoke replacement password';
+const changed = await request('users/me/password', 'PATCH', accessToken, { currentPassword: input.password, newPassword }, currentCookie);
+assert.equal(changed.status, 204);
+assert.equal(changed.headers.get('set-cookie'), null);
+assert.equal((await request('auth/login', 'POST', '', input)).status, 401);
+assert.equal((await request('auth/login', 'POST', '', { ...input, password: newPassword })).status, 200);
+assert.equal((await request('auth/refresh', 'POST', '', {}, otherCookie)).status, 401);
+const rotated = await request('auth/refresh', 'POST', '', {}, currentCookie);
+assert.equal(rotated.status, 200);
+const nextCookie = rotated.headers.get('set-cookie').split(';')[0];
+const deleted = await request('users/me', 'DELETE', accessToken, {}, nextCookie);
+assert.equal(deleted.status, 204);
+for (const flag of ['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/']) assert.ok(deleted.headers.get('set-cookie').includes(flag));
+assert.equal((await request('users/me', 'GET', accessToken)).status, 401);
+assert.equal((await request('auth/refresh', 'POST', '', {}, nextCookie)).status, 401);
+console.log('Production container users, password change, session revocation and account deletion passed.');
+JS
+test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
+test "$(psql 'select count(*) > 0 from auth_revoked_families r left join auth_token_families f using (family_id) where f.family_id is null;')" = t
+
 # Restart and then recreate containers; both must retain the named volume.
 compose restart postgres
 compose up --detach --wait --wait-timeout 120
 test "$(psql "select count(*) from example_records where label = 'persistence-smoke';")" = 1
+
+test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
+test "$(psql 'select count(*) > 0 from auth_revoked_families r left join auth_token_families f using (family_id) where f.family_id is null;')" = t
 compose up --detach --force-recreate --wait --wait-timeout 120
 api_id="$(compose ps -q api)"
 postgres_id="$(compose ps -q postgres)"

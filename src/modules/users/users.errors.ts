@@ -11,3 +11,6 @@ export class UserPersistenceError extends Error {
     this.name = 'UserPersistenceError';
   }
 }
+
+export class UserNotFoundError extends Error {}
+export class UserPasswordChangedError extends Error {}

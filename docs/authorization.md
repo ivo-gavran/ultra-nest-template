@@ -16,15 +16,18 @@ Authentication verifies the bearer JWT and loads the current user from PostgreSQ
 
 ## Explicit abilities
 
-| Policy / ability           | Guest  | user    | admin   | Resource constraint                               |
-| -------------------------- | ------ | ------- | ------- | ------------------------------------------------- |
-| `SessionsPolicy.listOwn`   | Denied | Allowed | Allowed | SQL uses authenticated owner ID                   |
-| `SessionsPolicy.revokeOwn` | Denied | Allowed | Allowed | Atomic owner-filtered tombstone INSERT            |
-| `SessionsPolicy.logoutAll` | Denied | Allowed | Allowed | Authenticated owner's families only               |
-| `UsersPolicy.readSelf`     | Denied | Allowed | Allowed | Read only the verified current user               |
-| `UsersPolicy.manage`       | Denied | Denied  | Allowed | Only operations explicitly declaring this ability |
+| Policy / ability                | Guest  | user    | admin   | Resource constraint                                      |
+| ------------------------------- | ------ | ------- | ------- | -------------------------------------------------------- |
+| `SessionsPolicy.listOwn`        | Denied | Allowed | Allowed | SQL uses authenticated owner ID                          |
+| `SessionsPolicy.revokeOwn`      | Denied | Allowed | Allowed | Atomic owner-filtered tombstone INSERT                   |
+| `SessionsPolicy.logoutAll`      | Denied | Allowed | Allowed | Authenticated owner's families only                      |
+| `UsersPolicy.readSelf`          | Denied | Allowed | Allowed | Read only the verified current user                      |
+| `UsersPolicy.updateSelf`        | Denied | Allowed | Allowed | Email/display name on authenticated user only            |
+| `UsersPolicy.changeOwnPassword` | Denied | Allowed | Allowed | Current-password verification and locked hash comparison |
+| `UsersPolicy.deleteSelf`        | Denied | Allowed | Allowed | Transactional deletion of authenticated user only        |
+| `UsersPolicy.manage`            | Denied | Denied  | Allowed | Only operations explicitly declaring this ability        |
 
-Unknown roles fail closed. `UsersPolicy` prepares the small role checks for PR-09; PR-08 adds **no users or administrative production endpoints**. The administrative and undeclared route examples exist only in the PostgreSQL test fixture. Ordinary self-access does not imply permission to read an arbitrary user's record. Session permissions do not give administrators access to other users' sessions.
+Unknown roles fail closed. PR-09 maps the four self abilities to `/users/me` and `/users/me/password`; every `/users` list and `/users/:id` operation explicitly declares `manage`. Ordinary self-access does not imply permission to read an arbitrary user's record. Session permissions do not give administrators access to other users' sessions.
 
 ## Protecting a new endpoint
 
@@ -33,7 +36,9 @@ Unknown roles fail closed. `UsersPolicy` prepares the small role checks for PR-0
 3. Use `@CurrentUser()` to obtain the verified database-loaded principal. Use its ID in service/repository predicates. Validate transport inputs with explicit strict Zod schemas as before.
 4. Document bearer auth and 401/403 outcomes, then test guest, permitted/forbidden roles, undeclared routes and resource isolation with PostgreSQL where applicable.
 
-For example, a future self-read handler can declare `@Can(UsersPolicy, 'readSelf')` and return the public user supplied by `@CurrentUser()`. It must not treat an arbitrary `:userId` as that identity. An administrative users operation must explicitly declare `@Can(UsersPolicy, 'manage')`; unrelated policies are unaffected by admin status.
+The self-read handler declares `@Can(UsersPolicy, 'readSelf')` and reads a public projection using the ID supplied by `@CurrentUser()`. It never treats an arbitrary `:userId` as that identity. Administrative users operations explicitly declare `@Can(UsersPolicy, 'manage')`; unrelated policies are unaffected by admin status.
+
+The separate strict admin update schema permits email, display name and role only. Self-service rejects role changes; no database model is accepted as a request DTO. Current database roles override any JWT role claims, including after admin promotion/demotion. Administrative self-demotion and self-deletion are rejected with 409 after validated UUID normalization. Intentional self-deletion remains available through `/users/me`; this is not a last-admin invariant. Password replacement and deletion share user-row-first locking with authentication storage. See [users lifecycle contracts](users.md) for concurrency and retention decisions.
 
 `@Can()` runs before validation pipes. Avoid loading records or trusting unvalidated IDs inside a decorator resolver. If permission depends on a record that must first be loaded, enforce it in the application service using an appropriate record-aware policy through the public `AuthorizationService.authorize()` API. Keep foreign/missing responses safe, and for a subsequent write retain an owner/version predicate in the SQL statement or an appropriate transaction lock. A prior in-memory ownership check alone is not sufficient for mutable resources. The package maps service authorization denials inside handlers to native HTTP errors; do not add an exception wrapper that exposes policy arguments.
 
@@ -54,4 +59,4 @@ The installed package's public exports, `Can`/`Policy` declarations, `Ability` a
 
 Policy unit tests cover guest, user, admin and unexpected roles. HTTP tests use real bearer flows and migrated PostgreSQL, with a test-only admin/undeclared controller. Public authorization denial events prove invalid credentials stop before authorization and authenticated denials see a real principal; tests capture decision metadata only. Never log entire authorization events: they can contain users and policy arguments. No production event logging was added in this milestone.
 
-Run `pnpm test`, then `pnpm test:integration`; these commands share a generated test directory and must run sequentially. Existing authentication, session cookie association, CSRF/CORS, storage concurrency and migration tests remain enabled. Production Swagger's exact path assertions keep test fixture endpoints out of the application contract. See [PR-08 verification](pr-08-verification.md) for executed results.
+Run `pnpm test`, then `pnpm test:integration`; these commands share a generated test directory and must run sequentially. Existing authentication, session cookie association, CSRF/CORS, storage concurrency and migration tests remain enabled. Production Swagger's exact path assertions keep test fixture endpoints out of the application contract. See [PR-08 verification](pr-08-verification.md) and [PR-09 verification](pr-09-verification.md) for executed results.

@@ -1,13 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDrizzle } from '@nestjs/drizzle';
-import { eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../../database/database.module.js';
 import { users } from '../../database/schema/users.js';
+import {
+  authTokenFamilies as families,
+  authRefreshTokens as tokens,
+  authRevokedFamilies as revoked,
+} from '../../database/schema/auth.js';
 import { emailSchema } from './schemas/user.schema.js';
-import type { PublicUser, UpdateUserInput } from './schemas/user.schema.js';
+import type {
+  AdminUpdateUserInput,
+  PublicUser,
+  UpdateUserInput,
+  UserQuery,
+} from './schemas/user.schema.js';
 import {
   UserEmailConflictError,
   UserPersistenceError,
+  UserNotFoundError,
+  UserPasswordChangedError,
 } from './users.errors.js';
 
 type NewUserRecord = Pick<
@@ -26,6 +39,11 @@ const publicColumns = {
 };
 
 function rethrowPersistenceError(error: unknown): never {
+  if (
+    error instanceof UserNotFoundError ||
+    error instanceof UserPasswordChangedError
+  )
+    throw error;
   const cause = error instanceof Error ? error.cause : undefined;
   if (
     cause &&
@@ -45,6 +63,52 @@ function rethrowPersistenceError(error: unknown): never {
 @Injectable()
 export class UsersRepository {
   constructor(@InjectDrizzle() private readonly db: Database) {}
+
+  /** Internal account workflow only. Never return this projection over HTTP. */
+  async findPasswordHash(id: string): Promise<string | undefined> {
+    try {
+      const [record] = await this.db
+        .select({ hash: users.passwordHash })
+        .from(users)
+        .where(eq(users.id, id));
+      return record?.hash;
+    } catch (error) {
+      return rethrowPersistenceError(error);
+    }
+  }
+
+  async list(query: UserQuery): Promise<PublicUser[]> {
+    try {
+      const anchor = alias(users, 'anchor');
+      // Both identifiers and the comparison/order are selected from fixed code.
+      const column = query.sort === 'email' ? users.email : users.createdAt;
+      const anchorColumn =
+        query.sort === 'email' ? anchor.email : anchor.createdAt;
+      const compare = query.order === 'asc' ? sql`>` : sql`<`;
+      const order = query.order === 'asc' ? asc : desc;
+      return await this.db
+        .select(publicColumns)
+        .from(users)
+        .where(
+          and(
+            query.search
+              ? sql`(strpos(lower(${users.email}), lower(${query.search})) > 0
+          or strpos(lower(coalesce(${users.displayName}, '')), lower(${query.search})) > 0)`
+              : undefined,
+            query.after
+              ? sql`(${column}, ${users.id}) ${compare} (
+          select ${anchorColumn}, ${anchor.id} from ${users} as "anchor"
+          where ${anchor.id} = ${query.after}
+        )`
+              : undefined,
+          ),
+        )
+        .orderBy(order(column), order(users.id))
+        .limit(query.limit + 1);
+    } catch (error) {
+      return rethrowPersistenceError(error);
+    }
+  }
 
   /** Internal password authentication only; never use this as an HTTP model. */
   async findAuthenticationCredentials(
@@ -111,6 +175,21 @@ export class UsersRepository {
     id: string,
     input: UpdateUserInput,
   ): Promise<PublicUser | undefined> {
+    // Explicitly discard any privileged fields at this persistence boundary too.
+    return this.updateFields(id, {
+      email: input.email,
+      displayName: input.displayName,
+    });
+  }
+
+  updateAsAdmin(id: string, input: AdminUpdateUserInput) {
+    return this.updateFields(id, input);
+  }
+
+  private async updateFields(
+    id: string,
+    input: AdminUpdateUserInput,
+  ): Promise<PublicUser | undefined> {
     const email =
       input.email === undefined ? undefined : emailSchema.parse(input.email);
     try {
@@ -119,6 +198,7 @@ export class UsersRepository {
         .set({
           email,
           displayName: input.displayName,
+          role: input.role,
           updatedAt: sql`statement_timestamp()`,
         })
         .where(eq(users.id, id))
@@ -126,6 +206,98 @@ export class UsersRepository {
       return user;
     } catch (error) {
       return rethrowPersistenceError(error);
+    }
+  }
+
+  async changePassword(
+    id: string,
+    expectedHash: string,
+    passwordHash: string,
+    currentSid: string | undefined,
+  ): Promise<void> {
+    try {
+      await this.db.transaction(async (tx) => {
+        // Same user-first lock as refresh saving/logout-all/deletion. Expensive
+        // scrypt runs beforehand; the locked comparison prevents lost updates.
+        const [user] = await tx
+          .select({ hash: users.passwordHash })
+          .from(users)
+          .where(eq(users.id, id))
+          .for('update');
+        if (!user) throw new UserNotFoundError();
+        if (user.hash !== expectedHash) throw new UserPasswordChangedError();
+
+        const [current] = currentSid
+          ? await tx
+              .select({ familyId: families.familyId })
+              .from(families)
+              .leftJoin(revoked, eq(revoked.familyId, families.familyId))
+              .where(
+                and(
+                  eq(families.userId, id),
+                  eq(families.sessionId, currentSid),
+                  sql`${families.claims}->>'sid' = ${currentSid.toLowerCase()}`,
+                  isNull(revoked.familyId),
+                  sql`${families.familyExpiresAt} > statement_timestamp()`,
+                  sql`exists (select 1 from ${tokens} where ${tokens.familyId} = ${families.familyId}
+              and ${tokens.usedAt} is null and ${tokens.expiresAt} > statement_timestamp())`,
+                ),
+              )
+          : [];
+        await tx
+          .update(users)
+          .set({ passwordHash, updatedAt: sql`statement_timestamp()` })
+          .where(eq(users.id, id));
+        await tx
+          .insert(revoked)
+          .select(
+            tx
+              .select({
+                familyId: families.familyId,
+                revokedAt: sql<Date>`statement_timestamp()`.as('revoked_at'),
+              })
+              .from(families)
+              .where(
+                and(
+                  eq(families.userId, id),
+                  current ? ne(families.familyId, current.familyId) : undefined,
+                ),
+              ),
+          )
+          .onConflictDoNothing();
+      });
+    } catch (error) {
+      rethrowPersistenceError(error);
+    }
+  }
+
+  async deleteAccount(id: string): Promise<void> {
+    try {
+      await this.db.transaction(async (tx) => {
+        const [user] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, id))
+          .for('update');
+        if (!user) throw new UserNotFoundError();
+        // Tombstones intentionally have no FK. Retain them after cascades erase
+        // family/token rows, including any preexisting revocation evidence.
+        await tx
+          .insert(revoked)
+          .select(
+            tx
+              .select({
+                familyId: families.familyId,
+                revokedAt: sql<Date>`statement_timestamp()`.as('revoked_at'),
+              })
+              .from(families)
+              .where(eq(families.userId, id)),
+          )
+          .onConflictDoNothing();
+        await tx.delete(users).where(eq(users.id, id));
+      });
+    } catch (error) {
+      rethrowPersistenceError(error);
     }
   }
 }

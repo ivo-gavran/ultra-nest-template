@@ -33,6 +33,9 @@ describe('Explicit role permissions', () => {
     expect(sessions.revokeOwn(user)).toBe(own);
     expect(sessions.logoutAll(user)).toBe(own);
     expect(users.readSelf(user)).toBe(own);
+    expect(users.updateSelf(user)).toBe(own);
+    expect(users.changeOwnPassword(user)).toBe(own);
+    expect(users.deleteSelf(user)).toBe(own);
     expect(users.manage(user)).toBe(admin);
   });
 });
