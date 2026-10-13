@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-12: Observability and operational behavior**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
+A modular NestJS REST starter at private package version **1.0.0**, currently **PR-13: release candidate pending independent final review**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
 
 ## Requirements and installation
 
@@ -26,7 +26,11 @@ Corepack is bundled with the selected Node release; if your Node distribution om
 
 ## Development and production build
 
+First create a local PostgreSQL role/database matching `DATABASE_URL` (or use
+the [Compose workflow](#docker-and-ci)). Then apply the committed migrations:
+
 ```sh
+pnpm db:migrate
 pnpm start:dev
 # GET http://localhost:3000/api/v1 -> Hello World!
 # Swagger UI: http://localhost:3000/docs
@@ -54,7 +58,7 @@ pnpm build
 pnpm start
 ```
 
-Production output is ESM in `dist/`, with source maps and no tests. Keep `package.json` beside the output so Node retains ESM mode. Local TypeScript imports use `.js` extensions. TypeScript **6.0.3** and NestJS **12.1.3** retain the compatibility decisions from PR-00.
+Production output is ESM in `dist/`, with source maps and no tests. See [internal source-map debugging](docs/observability.md#internal-source-map-debugging). Keep `package.json` beside the output so Node retains ESM mode. Local TypeScript imports use `.js` extensions. TypeScript **6.0.3** and NestJS **12.1.3** retain the compatibility decisions from PR-00.
 
 Set `NODE_ENV=production` explicitly for production runs. Both Swagger UI (`/docs`, including assets) and its OpenAPI document (`/docs-json`) are absent by default in production. Set `SWAGGER_ENABLED=true` to expose both, or `false` to disable them in any environment. YAML documentation is not exposed.
 
@@ -83,7 +87,11 @@ pnpm lint
 pnpm format:check
 pnpm typecheck
 pnpm test
+pnpm test:integration # Docker required
+pnpm test:e2e         # Docker; production security defaults
+pnpm test:cov         # Unit + integration coverage; Docker required
 pnpm build
+pnpm verify:build
 ```
 
 Use `pnpm format` to format application code and current tooling/docs. The supplied plans, ADRs and PR-00 snapshot are excluded from root formatting to preserve their contents; the compatibility spike also remains outside root lint, build and tests.
@@ -117,7 +125,7 @@ docker info
 pnpm test:integration
 ```
 
-This command starts disposable `postgres:17-alpine` containers, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Users tests cover normalized email uniqueness, concurrent duplicates, safe public models and upgrades from the pre-users schema with existing data. Each suite has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite, including strict user schemas and real scrypt hashing/verification. Run the commands sequentially because they both rebuild `.test-dist/`.
+This command starts disposable `postgres:17-alpine` containers, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Users tests cover normalized email uniqueness, concurrent duplicates, safe public models and upgrades from the pre-users schema with existing data. Each suite has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite, including strict user schemas and real scrypt hashing/verification. Run all test commands sequentially because they rebuild `.test-dist/`. `pnpm test:e2e` is the isolated release lifecycle suite; `pnpm test:cov` runs unit + integration with V8 reports under `coverage/`. See [release gates and scope](docs/release-readiness.md#release-gates-and-test-scope).
 
 ## Users API and persistence
 
@@ -175,17 +183,17 @@ With Docker and Compose installed:
 ```sh
 cp .env.example .env # First setup only; review local database values
 # Fill AUTH_SIGNING_KEY and AUTH_TRUSTED_ORIGINS as described above.
-# Starts the API and waits for healthy PostgreSQL:
-docker compose up --build
-# In another terminal; migrations are always explicit:
+# Start the isolated database, apply migrations, then start the API:
+docker compose up --detach --wait postgres
 docker compose run --build --rm migrate
+docker compose up --build
 ```
 
 The API responds at `http://localhost:3000/api/v1`. Compose uses production mode, with Swagger off by default; set `SWAGGER_ENABLED=true` to expose local documentation. PostgreSQL data lives in a named volume and survives `docker compose down`. Rebuild after source changes.
 
 The multi-stage image uses Node 24.21.0, runs as a non-root user and contains production dependencies plus compiled ESM output. Migration tooling has a separate build target. See [Docker and CI instructions](docs/docker-ci.md) for environment settings, deployment migrations, persistent data, shutdown and branch protection setup.
 
-GitHub Actions runs install, lint, format, typecheck, both test suites, build and a Docker Compose smoke test on PRs and pushes to `main`. Test suites run sequentially. Dependabot proposes weekly dependency/action/image updates without automatic merging. Required check: **Verify** from workflow **CI**; configure protection after its first successful GitHub run.
+GitHub Actions runs install, lint, format, typecheck, unit/integration coverage, dedicated E2E, dependency audits, build/source-map verification and a Docker Compose smoke test on PRs and pushes to `main`. Test suites run sequentially. Dependabot proposes weekly dependency/action/image updates without automatic merging. Required check: **Verify** from workflow **CI**; configure protection after its first successful GitHub run.
 
 ## Git conventions
 
@@ -221,4 +229,4 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [Observability guide](docs/observability.md)
 - [PR-12 verification results](docs/pr-12-verification.md)
 
-Next milestone: **PR-13 release preparation**. Optional extensions remain opt-in.
+Next milestone: **independent final review and explicit release authorization**. See the [release-readiness audit, gates and deployment/rollback checklist](docs/release-readiness.md) and [PR-13 verification](docs/pr-13-verification.md). `package.json` already declares private version `1.0.0`; no `v1.0.0` Git tag, GitHub release, publication, merge or deployment is authorized by this milestone. Optional extensions remain opt-in.

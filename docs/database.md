@@ -6,6 +6,23 @@ The application uses the PR-00-verified versions: `@nestjs/drizzle` 0.0.2, `driz
 
 Install PostgreSQL locally or use an existing development instance. Create a development role/database using your normal PostgreSQL administration tooling and put its connection URL in an untracked `.env`. `.env.example` supplies illustrative local credentials only; the application does not provision them. Alternatively, use the local PostgreSQL service in the [Docker Compose setup](docker-ci.md).
 
+For a fresh local PostgreSQL installation, connect as its administrator with
+`psql -d postgres` (supply the appropriate `-U` administrator if needed), then:
+
+```sql
+CREATE ROLE app LOGIN;
+\password app
+CREATE DATABASE app OWNER app;
+```
+
+Enter a local-only password at the prompt and put the same URL-encoded value in
+`DATABASE_URL` in `.env`. These commands are for a new local role/database;
+do not rerun them against existing or production data. If local administrator
+access is unavailable, the documented Compose workflow creates its own isolated
+database and runs both API/migrations in containers without host PostgreSQL.
+Compose does not publish PostgreSQL to the host; host `pnpm start:dev` needs a
+separate reachable development database, not the internal `postgres` hostname.
+
 Run all database commands from the repository root using the pinned Node/pnpm versions:
 
 ```sh

@@ -7,6 +7,9 @@ project="nest-smoke-$(date +%s)-$$"
 export POSTGRES_USER=smoke POSTGRES_DB=smoke API_PORT=0 SWAGGER_ENABLED=false
 # Smoke flows make many sequential auth calls from one client; production
 # defaults (5/60s auth) would throttle them. Raise limits for smoke only.
+# Ignore inherited telemetry settings; optional telemetry is exercised explicitly below.
+unset SENTRY_DSN OTEL_ENABLED OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS OTEL_SERVICE_NAME OTEL_EXPORTER_OTLP_TIMEOUT OTEL_TRACES_SAMPLER_ARG OTEL_METRIC_EXPORT_INTERVAL
+unset TRUST_PROXY REQUEST_BODY_LIMIT_BYTES RATE_LIMIT_GLOBAL_TTL_MS RATE_LIMIT_AUTH_TTL_MS RATE_LIMIT_AUTH_BLOCK_MS RATE_LIMIT_ACCOUNT_TTL_MS
 export RATE_LIMIT_AUTH_LIMIT=1000 RATE_LIMIT_GLOBAL_LIMIT=10000 RATE_LIMIT_ACCOUNT_LIMIT=1000
 POSTGRES_PASSWORD="$(node -e 'console.log(require("node:crypto").randomUUID())')"
 export POSTGRES_PASSWORD
@@ -31,11 +34,27 @@ address="$(compose port api 3000)"
 
 compose exec -T api node --input-type=module -e '
   import assert from "node:assert/strict";
-  import { existsSync } from "node:fs";
+  import { existsSync, readdirSync, readFileSync } from "node:fs";
   assert.notEqual(process.getuid(), 0);
   assert.equal(process.version, "v24.21.0");
   for (const path of ["src", "test", ".env", ".git", "migrations", "node_modules/jest", "node_modules/typescript", "node_modules/drizzle-kit"]) {
     assert.equal(existsSync(path), false, `Unexpected runtime file: ${path}`);
+  }
+  for (const entry of readdirSync("node_modules/.pnpm")) {
+    assert.doesNotMatch(entry, /^(jest|typescript|drizzle-kit|esbuild|sprintf-js|@nestjs\+cli|@testcontainers\+postgresql)@/);
+  }
+  const artifacts = readdirSync("dist", { recursive: true }).map(String);
+  assert.ok(artifacts.includes("main.js.map"));
+  assert.ok(!artifacts.some(path => /sql-privacy-probe|release-fixture|\.spec\./.test(path)));
+  for (const path of artifacts.filter(path => path.endsWith(".map"))) {
+    const map = JSON.parse(readFileSync(`dist/${path}`, "utf8"));
+    assert.equal(map.sourcesContent, undefined);
+    assert.ok(map.sources.every(source => /^(?:\.\.\/)+src\//.test(source)));
+  }
+  for (const path of artifacts.filter(path => /\.(js|map)$/.test(path))) {
+    const text = readFileSync(`dist/${path}`, "utf8");
+    for (const secret of [process.env.AUTH_SIGNING_KEY, new URL(process.env.DATABASE_URL).password])
+      assert.equal(text.includes(secret), false, "Runtime secret baked into artifact");
   }
 '
 API_URL="http://$address" node --input-type=module <<'JS'
@@ -44,7 +63,8 @@ const base = process.env.API_URL;
 const response = await fetch(`${base}/api/v1`);
 assert.equal(response.status, 200);
 assert.equal(await response.text(), 'Hello World!');
-assert.equal((await fetch(`${base}/docs`)).status, 404);
+for (const path of ["/docs", "/docs-json", "/dist/main.js.map", "/api/v1/observability-sql-probe"])
+  assert.equal((await fetch(`${base}${path}`)).status, 404);
 for (const probe of ['live', 'ready']) {
   const health = await fetch(`${base}/api/v1/health/${probe}`);
   assert.equal(health.status, 200);
@@ -62,6 +82,7 @@ JS
 
 test "$(psql "select to_regclass('public.example_records') is null;")" = t
 compose run --build --rm migrate
+compose run --rm --no-deps migrate node -e 'require("node:assert/strict").notEqual(process.getuid(), 0)'
 psql "insert into example_records (label) values ('persistence-smoke');"
 compose run --rm migrate
 expected_migrations="$(node -e 'console.log(require("./migrations/meta/_journal.json").entries.length)')"
@@ -185,7 +206,7 @@ compose logs --no-color --no-log-prefix api | node --input-type=module -e '
   for (const leaked of [
     process.env.POSTGRES_PASSWORD, process.env.AUTH_SIGNING_KEY, "smoke password", "original password",
     "replacement password", "@example.test", "Bearer ", "__Host-refresh", "eyJ",
-  ]) assert.equal(input.includes(leaked), false, `Log leak: ${leaked}`);
+  ]) assert.equal(input.includes(leaked), false, "Sensitive value found in logs");
   const completed = records.filter((record) => record.message === "http.request.completed");
   assert.ok(completed.length > 20);
   assert.ok(completed.every((record) => record.service === "ultra-nest-template" && record.requestId && !("traceId" in record)));
@@ -274,19 +295,20 @@ docker logs "$otlp" | node --input-type=module -e '
   assert.ok(requests.some((request) => request.path === "/v1/metrics" && request.body.includes("http.server.request.duration")));
   const bodies = requests.map((request) => request.body).join("\n");
   for (const leaked of [process.env.POSTGRES_PASSWORD, process.env.AUTH_SIGNING_KEY, "otel-smoke@example.test", "otel smoke password", "eyJ", "smoke-collector-token", "drizzle."])
-    assert.equal(bodies.includes(leaked), false, `Telemetry leak: ${leaked}`);
+    assert.equal(bodies.includes(leaked), false, "Sensitive value found in telemetry");
   console.log(`Production image OTLP export passed (${spans.length} spans, ${pg.length} PostgreSQL).`);
 '
 otel_logs="$(docker logs "$otel_api" 2>&1)"
 grep -q '"traceId":"5b8efff798038103d269b633813fc60c"' <<< "$otel_logs"
 if grep -q 'smoke-collector-token' <<< "$otel_logs"; then echo 'Collector header leaked to logs'; exit 1; fi
 
-run_api "$dead_api" --env OTEL_ENABLED=true --env OTEL_EXPORTER_OTLP_TIMEOUT=2000 \
+run_api "$dead_api" --env OBSERVABILITY_SQL_PROBE=1 --env OTEL_ENABLED=true --env OTEL_EXPORTER_OTLP_TIMEOUT=2000 \
   --env OTEL_EXPORTER_OTLP_ENDPOINT="http://$project-no-collector:4318" --env OTEL_TRACES_SAMPLER_ARG=1
 wait_ready "$dead_api"
 API_URL="http://$(docker port "$dead_api" 3000)" node --input-type=module -e '
   import assert from "node:assert/strict";
   for (let i = 0; i < 5; i++) assert.equal((await fetch(`${process.env.API_URL}/api/v1`)).status, 200);
+  assert.equal((await fetch(`${process.env.API_URL}/api/v1/observability-sql-probe`)).status, 404);
 '
 stop_api "$dead_api"
 echo 'Unreachable collector did not affect requests and shutdown stayed bounded.'
