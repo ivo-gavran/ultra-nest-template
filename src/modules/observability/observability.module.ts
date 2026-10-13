@@ -2,7 +2,6 @@ import { Injectable, Module } from '@nestjs/common';
 import type { OnApplicationShutdown } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ObservabilityExceptionFilter } from './observability-exception.filter.js';
-import { SqlPrivacyProbeController } from './sql-privacy-probe.controller.js';
 import { shutdownTelemetry } from './telemetry.js';
 
 // Nest runs shutdown hooks after the HTTP server has closed, so every served
@@ -15,13 +14,7 @@ class TelemetryShutdown implements OnApplicationShutdown {
   }
 }
 
-const sqlPrivacyProbe =
-  process.env.OBSERVABILITY_SQL_PROBE === '1'
-    ? [SqlPrivacyProbeController]
-    : [];
-
 @Module({
-  controllers: sqlPrivacyProbe,
   providers: [
     { provide: APP_FILTER, useClass: ObservabilityExceptionFilter },
     TelemetryShutdown,

@@ -8,6 +8,8 @@ Use Docker Desktop or a Docker Engine installation with the Compose plugin and B
 cp .env.example .env # First setup only; do not overwrite existing settings
 # Review the local PostgreSQL values in .env
 # Fill AUTH_SIGNING_KEY and AUTH_TRUSTED_ORIGINS (see authentication guide).
+docker compose up --detach --wait postgres
+docker compose run --build --rm migrate
 # Foreground mode; Ctrl-C stops the services cleanly:
 docker compose up --build
 ```
@@ -48,7 +50,7 @@ docker compose down
 
 ## Explicit migrations
 
-Startup never migrates the database. After the stack starts, run in another terminal:
+Startup never migrates the database. Before starting a fresh API (and before code requiring a new schema), run:
 
 ```sh
 docker compose run --build --rm migrate
@@ -83,12 +85,13 @@ The `Verify` job executes, in order:
 2. `pnpm lint`
 3. `pnpm format:check`
 4. `pnpm typecheck`
-5. `pnpm test`
-6. Docker availability check and `pnpm test:integration`
-7. `pnpm build`
-8. `bash scripts/verify-compose.sh`
+5. Docker availability check and `pnpm test:cov` (unit + integration once)
+6. `pnpm test:e2e`
+7. `pnpm audit --audit-level=high` and `pnpm audit --prod --audit-level=moderate`
+8. `pnpm build` and `pnpm verify:build`
+9. `bash scripts/verify-compose.sh`
 
-The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
+The test suites run sequentially because they rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
 
 Observability checks in the smoke test (PR-12):
 
@@ -112,3 +115,5 @@ After this workflow has produced a successful run, a repository administrator ca
 Do not select an unreported check name; GitHub must first see the workflow check. Private repository branch-protection availability depends on the account plan. These are setup instructions: this PR does not change repository protection, permissions or merge settings. See [GitHub branch protection documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
 Successful local commands do not establish GitHub CI success. Check the PR's latest commit under **Checks → CI → Verify**; the PR report links the actual GitHub run once it completes.
+
+See the [release checklist and rollback runbook](release-readiness.md#production-deployment-and-rollback-checklist) before a separately authorized production rollout. PR-13 also checks the migration UID, physical runtime dependency store, source-map privacy and absence of the former SQL probe even when its old flag is supplied.

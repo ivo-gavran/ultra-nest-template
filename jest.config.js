@@ -6,7 +6,7 @@ export default {
     '<rootDir>/.test-dist/test/**/*.spec.js',
     '<rootDir>/.test-dist/src/**/*.spec.js',
   ],
-  testPathIgnorePatterns: ['/test/integration/'],
+  testPathIgnorePatterns: ['/test/integration/', '/test/e2e/'],
   transform: {},
   clearMocks: true,
   restoreMocks: true,

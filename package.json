@@ -21,7 +21,10 @@
     "hooks:install": "lefthook install",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "test:integration": "pnpm build:test && node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.js --runInBand"
+    "test:integration": "pnpm build:test && node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.js --runInBand",
+    "test:e2e": "pnpm build:test && node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.e2e.config.js --runInBand",
+    "test:cov": "pnpm build:test && node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.coverage.config.js --runInBand --coverage",
+    "verify:build": "node --enable-source-maps scripts/verify-build.js"
   },
   "dependencies": {
     "@nestjs/authentication": "0.1.1",

@@ -3,11 +3,10 @@ import { Public } from '@nestjs/authentication';
 import { InjectDrizzle } from '@nestjs/drizzle';
 import { SkipThrottle } from '@nestjs/throttler';
 import { sql } from 'drizzle-orm';
-import type { Database } from '../../database/database.module.js';
+import type { Database } from '../../src/database/database.module.js';
 
-// Test-only route. Registered only when OBSERVABILITY_SQL_PROBE=1 so the
-// production-bootstrap integration test can execute a query whose SQL text
-// embeds a sensitive literal. Never enable in Compose or production.
+// Imported only by the isolated telemetry bootstrap fixture. Never compiled
+// into dist or included in the Docker build context.
 export const SQL_PRIVACY_PROBE_LITERAL = 'inline-sql-secret-literal-9f2a';
 
 @Public()

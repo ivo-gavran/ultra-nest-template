@@ -17,7 +17,7 @@ OpenTelemetry is the only tracer. Sentry runs with `defaultIntegrations: false`,
 
 ## Startup order (ESM)
 
-`src/main.ts` validates the application and telemetry environment, starts telemetry, then dynamically imports `src/bootstrap.ts` (NestJS, Express, Drizzle, pg). Instrumentation hooks modules as they load; pg imported before `registerInstrumentations` produces no database spans. A subprocess test of the compiled `main.js` and the Compose smoke test (the production image) assert database spans, and a manual negative control (static import) produces none.
+`src/main.ts` validates the application and telemetry environment, starts telemetry, then dynamically imports `src/bootstrap.ts` (NestJS, Express, Drizzle, pg). Instrumentation hooks modules as they load; pg imported before `registerInstrumentations` produces no database spans. Subprocess tests of compiled production `main.js` and an isolated privacy fixture, plus the Compose smoke test (the production image) assert database spans, and a manual negative control (static import) produces none.
 
 `@opentelemetry/instrumentation-pg` patches `pg/lib/client.js` via `require-in-the-middle`. pg's ESM entry re-exports its CommonJS implementation, so no `--import`/`--experimental-loader` flag or `import-in-the-middle` hook is required on Node 24. Keep `main.ts` free of static application imports.
 
@@ -167,5 +167,36 @@ Every request served before the HTTP server closes is exported. Nest runs shutdo
   - disabled telemetry (no connections);
   - refused and black-holed collectors;
   - flush-once.
-- `test/integration/observability-bootstrap.spec.ts` spawns compiled `main.js` with a local OTLP receiver and Sentry pointed at it. It verifies early instrumentation (pg child spans), traceparent continuation, export of spans and metrics once at SIGTERM, collector headers, no Sentry traffic or extra tracers, and no secrets in output. With `OBSERVABILITY_SQL_PROBE=1` it executes a query whose SQL text embeds a sensitive literal and asserts the literal and statement attributes are absent from the OTLP payload while pg children, parent links and duration remain.
+- `test/integration/observability-bootstrap.spec.ts` spawns compiled `main.js` with a local OTLP receiver and Sentry pointed at it. It verifies early instrumentation (pg child spans), traceparent continuation, export of spans and metrics once at SIGTERM, collector headers, no Sentry traffic or extra tracers, and no secrets in output. The separate `test/fixtures/observability-main.ts` entry point executes a query whose SQL text embeds a sensitive literal and asserts the literal and statement attributes are absent from the OTLP payload while pg children, parent links and duration remain.
 - `scripts/verify-compose.sh` checks disabled-telemetry JSON logs in the production image, OTLP export from the image to a receiver on the Compose network, and an unreachable collector.
+
+## Internal source-map debugging
+
+`pnpm build` emits adjacent `.js.map` files in `dist`; `pnpm verify:build`
+checks every map and exercises actual Node stack remapping. Maps contain
+relative repository source paths and mappings, no embedded `sourcesContent`,
+absolute developer paths, environment files or runtime secrets. They remain
+inside the private application artifact and are not served by any HTTP route.
+Do not mount `dist` as static content or publish maps to a public bucket.
+
+For controlled internal debugging, start the same compiled artifact with
+`node --enable-source-maps dist/main.js` (or inject
+`NODE_OPTIONS=--enable-source-maps` through the supervisor). Node reports
+TypeScript file/line locations even without the source tree in the container.
+Use a private checkout of the **exact image commit** to inspect those lines.
+Default `pnpm start` keeps compiled stacks; enabling remapping is optional.
+Never expose a debugger port to public ingress. No automatic upload or public
+source-map hosting is configured.
+
+Public 500 errors remain generic and contain no stack/source paths; use the
+response `X-Request-ID` to locate restricted JSON logs and, when configured,
+Sentry trace/request tags. Sentry retains safe frame locations, drops local
+variables/source context, and does not automatically upload these maps. OTel
+keeps safe type/message correlation without SQL text. Free-text diagnostics
+are not a license to log credentials or PII.
+
+The SQL privacy probe now exists only under `test/fixtures`, outside production
+compilation and Docker context. `OBSERVABILITY_SQL_PROBE` is no longer a runtime
+setting; setting it cannot register a route, including in production. The
+embedded SQL literal/export privacy assertions remain enabled in the isolated
+fixture; real production bootstrap separately asserts 404 with the old flag.

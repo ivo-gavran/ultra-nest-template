@@ -51,3 +51,9 @@ Build and maintain a production-ready, reusable NestJS REST starter. Keep it sim
 
 ## Done means
 Acceptance criteria met; tests and types checked; README/env/docs updated for behavior changes; no secrets introduced; no speculative future work accidentally merged into core.
+
+## Release gates (PR-13)
+- Run `test`, `test:integration`, `test:e2e` and `test:cov` sequentially: each rebuilds `.test-dist`. CI uses `test:cov` for unit + integration once, then `test:e2e`.
+- Release E2E must preserve production scrypt, default rate budgets, real PostgreSQL/migrations and security modules. Keep test-only controllers/bootstraps under `test/`, never behind production environment flags.
+- Review dependency audits, scoped coverage thresholds, `pnpm verify:build` and `scripts/verify-compose.sh`; keep reviewed audit exceptions with exposure and review dates in `docs/release-readiness.md`.
+- This milestone prepares a release candidate only. Merging, publishing, deploying, creating a GitHub release or creating/pushing `v1.0.0` requires separate explicit authorization after independent final review.
