@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-08: authorization, role permissions and resource ownership**. The application exposes the original public starter routes and browser authentication and bearer-protected session administration under `/api/v1/auth`. Environment configuration is validated before the HTTP server starts. Users CRUD endpoints remain PR-09. Authorization now denies undeclared routes by default.
+A modular NestJS REST starter, currently at **PR-09: Users API and account lifecycle**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default.
 
 ## Requirements and installation
 
@@ -115,11 +115,17 @@ pnpm test:integration
 
 This command starts disposable `postgres:17-alpine` containers, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Users tests cover normalized email uniqueness, concurrent duplicates, safe public models and upgrades from the pre-users schema with existing data. Each suite has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite, including strict user schemas and real scrypt hashing/verification. Run the commands sequentially because they both rebuild `.test-dist/`.
 
-## Users persistence
+## Users API and persistence
 
 Import `UsersModule` in a consuming feature to inject `UsersService` and `PasswordsService`. The service supports create, lookup by UUID/email and updates to email/display name. It validates strict Zod inputs, normalizes email, hashes passwords with the PR-00-verified `@nestjs/authentication` scrypt implementation and returns only explicitly selected public fields. PostgreSQL enforces email uniqueness through an index on `lower(email)`, including concurrent requests.
 
 Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds the users table and role enum without altering the existing example table. Users persistence uses the existing `DATABASE_URL`. See the [users guide](docs/users.md) for input rules, return types, error handling and password costs.
+
+`GET/PATCH/DELETE /api/v1/users/me` reads, updates or deletes the verified current account. `PATCH /api/v1/users/me/password` requires current/new passwords, returns 204 and atomically revokes other refresh families while preserving only a verified usable current family. Mutations require a trusted Origin; all account responses are no-store. Self-service accepts no role or client identity. Password changes leave browser cookies untouched because a cookie may identify a different login from the bearer. Existing access JWTs can remain valid for 15 minutes after refresh revocation.
+
+Administrators can list/search users with `GET /api/v1/users?limit=20&sort=createdAt&order=desc`, following `nextCursor` as `after`; `GET/PATCH/DELETE /api/v1/users/:id` requires `UsersPolicy.manage`. Sort columns are allowlisted (`createdAt`, `email`) with UUID tie-breaking. Only the separate admin update schema allows role changes, which take effect on the next authenticated request. Admin self-deletion/self-demotion through target-ID routes returns 409; deliberate self-deletion uses `/users/me`.
+
+Account deletion writes tombstones and hard-deletes the user in one user-locked transaction; existing FKs cascade families and hashed refresh tokens. Tombstones remain indefinitely after deletion. Subsequent bearer/refresh authentication fails even after restart. No PR-09 migration is needed. See [contracts, concurrency and retention tradeoffs](docs/users.md) and [PR-09 verification](docs/pr-09-verification.md).
 
 ## Authentication
 
@@ -135,7 +141,7 @@ Use same-site HTTPS frontend/API deployments and `credentials: 'include'`. Cooki
 
 The official `@nestjs/authorization@0.1.0` global guard runs after authentication. Protected routes declare typed `@Can()` policies; a missing declaration denies access, including for administrators. Public starter/auth routes retain `@Public()`. Roles come from the database-loaded current user on each request, so changing a role affects the next request without replacing the JWT.
 
-Users and admins can list/revoke their own sessions and logout all their own devices. Existing SQL owner predicates remain authoritative; admins do not gain access to another user's sessions. Administrative user permissions are tested through fixtures only; no PR-09 endpoints are exposed. See [policy conventions and endpoint guidance](docs/authorization.md) and [PR-08 verification](docs/pr-08-verification.md).
+Users and admins can manage their own profiles and sessions. Existing SQL owner predicates remain authoritative; admins do not gain access to another user's session-management routes. Administrative user endpoints explicitly require `UsersPolicy.manage`. See [policy conventions and endpoint guidance](docs/authorization.md) and [PR-09 verification](docs/pr-09-verification.md).
 
 ## Docker and CI
 
@@ -184,4 +190,4 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [Browser auth transport](docs/adr/001-auth-transport.md)
 - [Bearer session model](docs/adr/002-auth-session-model.md)
 
-Session administration follows in PR-07. Authorization, user CRUD APIs and general security hardening remain later milestones. Optional extensions remain opt-in.
+Next milestone: **PR-10 general security hardening and rate limiting**. Health and observability remain PR-11/12. Optional extensions remain opt-in.

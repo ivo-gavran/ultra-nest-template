@@ -44,7 +44,7 @@ export class AuthService {
   register(input: CreateUserInput) {
     return this.safely(async () => {
       const user = await this.users.create(input);
-      return this.issue(user.id);
+      return this.login({ email: user.email, password: input.password });
     });
   }
 
@@ -60,7 +60,11 @@ export class AuthService {
       );
       if (!valid || !record)
         throw new UnauthorizedException('Invalid credentials');
-      return this.issue(record.id);
+      return this.store.withVerifiedPassword(
+        record.id,
+        record.passwordHash,
+        () => this.issue(record.id),
+      );
     });
   }
 

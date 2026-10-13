@@ -13,7 +13,7 @@ export function configureApplication(app: INestApplication): void {
   const origins = config.get('AUTH_TRUSTED_ORIGINS', { infer: true });
   // Before guards, validation and CSRF so rejected auth requests are not cached.
   const authNoStore: RequestHandler = (request, response, next) => {
-    if (/^\/api\/v1\/auth(?:\/|$)/i.test(request.path))
+    if (/^\/api\/v1\/(?:auth|users)(?:\/|$)/i.test(request.path))
       response.setHeader('Cache-Control', 'no-store');
     next();
   };
@@ -23,7 +23,7 @@ export function configureApplication(app: INestApplication): void {
   app.enableCors({
     origin: origins,
     credentials: true,
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
   if (config.get('SWAGGER_ENABLED', { infer: true })) {

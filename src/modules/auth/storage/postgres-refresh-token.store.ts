@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import {
@@ -29,6 +30,21 @@ export class AuthStorageError extends Error {
 
 @Injectable()
 export class PostgresRefreshTokenStore implements RefreshTokenStore {
+  // Request-local application precondition, never a claim or persisted field.
+  // The public store contract has no transaction/credential-version argument.
+  private readonly verifiedPassword = new AsyncLocalStorage<{
+    userId: string;
+    hash: string;
+  }>();
+
+  withVerifiedPassword<T>(
+    userId: string,
+    hash: string,
+    issue: () => Promise<T>,
+  ): Promise<T> {
+    return this.verifiedPassword.run({ userId, hash }, issue);
+  }
+
   constructor(
     @InjectDrizzle() private readonly db: Database,
     storage: AuthenticationStorage,
@@ -78,11 +94,20 @@ export class PostgresRefreshTokenStore implements RefreshTokenStore {
         // Same lock/order as revokeUserRefreshTokens: a new login after logout-all
         // may survive, but a successor of an older family remains revoked.
         const [owner] = await tx
-          .select({ id: users.id })
+          .select({ id: users.id, passwordHash: users.passwordHash })
           .from(users)
           .where(eq(users.id, record.userId))
           .for('update');
         if (!owner) throw new RefreshTokenError('invalid');
+        const verified = this.verifiedPassword.getStore();
+        // A login verified before a concurrent password change must not create
+        // a fresh surviving family after that change acquired the user lock.
+        if (
+          verified &&
+          (verified.userId !== record.userId ||
+            verified.hash !== owner.passwordHash)
+        )
+          throw new RefreshTokenError('invalid');
         const sid = record.claims?.sid;
         if (sid !== undefined && !z.uuid().safeParse(sid).success)
           throw new RefreshTokenError('invalid');

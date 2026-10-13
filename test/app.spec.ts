@@ -114,6 +114,10 @@ describe('Application HTTP conventions', () => {
       '/api/v1/auth/sessions',
       '/api/v1/auth/sessions/{id}',
       '/api/v1/greetings',
+      '/api/v1/users',
+      '/api/v1/users/me',
+      '/api/v1/users/me/password',
+      '/api/v1/users/{id}',
     ]);
     const sessions = document.paths['/api/v1/auth/sessions'].get!;
     const revoke = document.paths['/api/v1/auth/sessions/{id}'].delete!;
@@ -174,6 +178,55 @@ describe('Application HTTP conventions', () => {
     });
     expect(revoke.responses).toHaveProperty('204');
     expect(logoutAll.responses).toHaveProperty('204');
+    for (const path of [
+      '/api/v1/users',
+      '/api/v1/users/me',
+      '/api/v1/users/me/password',
+      '/api/v1/users/{id}',
+    ]) {
+      for (const endpoint of Object.values(document.paths[path])) {
+        expect(endpoint).toMatchObject({ security: [{ bearer: [] }] });
+      }
+    }
+    expect(document.paths['/api/v1/users/me'].patch!.requestBody).toMatchObject(
+      {
+        content: {
+          'application/json': {
+            schema: {
+              additionalProperties: false,
+              properties: {
+                email: expect.any(Object),
+                displayName: expect.any(Object),
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(
+      document.paths['/api/v1/users/me/password'].patch!.requestBody,
+    ).toMatchObject({
+      content: {
+        'application/json': {
+          schema: {
+            additionalProperties: false,
+            required: ['currentPassword', 'newPassword'],
+          },
+        },
+      },
+    });
+    expect(
+      document.paths['/api/v1/users/{id}'].patch!.requestBody,
+    ).toMatchObject({
+      content: {
+        'application/json': {
+          schema: {
+            additionalProperties: false,
+            properties: { role: { enum: ['user', 'admin'] } },
+          },
+        },
+      },
+    });
     expect(document.paths['/api/v1/greetings']?.post?.requestBody).toEqual({
       required: true,
       content: {
