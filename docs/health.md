@@ -20,6 +20,8 @@ Healthy readiness:
 
 Unhealthy readiness has `status: "error"`, empty `info`, and only `postgres: { status: "down" }` in `error` and `details`. During Terminus's shutdown phase the top-level status becomes `shutting_down`; the earlier module-destroy phase can return `error`. Both return 503. No SQL, database URL, driver message, timing diagnostics, credential or stack is returned. Terminus probe logging is disabled; health checks do not log driver failures. Existing application/Drizzle logging outside these checks is unchanged.
 
+Since PR-12, both responses carry `X-Request-ID`. Successful probes are deliberately quiet: no request log, span or duration metric. A failed probe (for example readiness 503) produces one `http.request.completed` log without a span. Readiness `SELECT 1` never creates PostgreSQL spans, because database spans require a traced parent. See the [observability guide](observability.md).
+
 ## Timeout, capacity and recovery
 
 `PostgresHealthIndicator` injects the existing Drizzle database and uses its `$client` pool. The pool remains capped at ten connections, with its existing five-second `connectionTimeoutMillis`. No extra connection pool, database session settings, migrations or startup queries are introduced.
@@ -41,6 +43,7 @@ The existing `app.enableShutdownHooks()` remains the signal entry point for SIGT
 2. Terminus's `beforeApplicationShutdown` hook marks its result `shutting_down`. On **SIGTERM**, the configured `gracefulShutdownTimeoutMs: 5000` keeps HTTP available for five seconds so an orchestrator can observe 503 and remove the instance. SIGINT and ordinary `app.close()` do not apply this delay. Readiness remains disabled regardless of signal.
 3. Nest's Express adapter stops accepting connections and waits for in-flight HTTP requests. Their existing database access remains available during drain. Clients should not send new business traffic after the instance becomes unready; the five-second propagation window itself does not reject business requests.
 4. The official Drizzle module's `onApplicationShutdown()` invokes `pg.Pool.end()` after HTTP disposal. Its existing per-client cleanup tracking prevents duplicate pool closure, including repeated/concurrent `app.close()` calls. The health module never closes the pool.
+5. Also in `onApplicationShutdown` (PR-12), telemetry flushes once, bounded by `OTEL_EXPORTER_OTLP_TIMEOUT` plus one second (at most 11 s). An unreachable collector cannot hold shutdown beyond that bound. No signal listener is added, and the pool is not touched.
 
 Tests hold a lifecycle barrier and an in-flight HTTP request to prove this order and query suppression, without depending on racing a request against server closure. Container smoke tests additionally exercise actual SIGINT and SIGTERM delivery.
 

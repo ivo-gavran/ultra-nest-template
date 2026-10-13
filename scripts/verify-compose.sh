@@ -13,7 +13,11 @@ export POSTGRES_PASSWORD
 AUTH_SIGNING_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
 export AUTH_SIGNING_KEY AUTH_TRUSTED_ORIGINS=https://app.example.test
 compose() { docker compose --env-file /dev/null --project-name "$project" "$@"; }
-cleanup() { compose down --volumes --remove-orphans; }
+otlp="$project-otlp" otel_api="$project-otel-api" dead_api="$project-dead-otlp-api"
+cleanup() {
+  docker rm --force "$otlp" "$otel_api" "$dead_api" > /dev/null 2>&1 || true
+  compose down --volumes --remove-orphans
+}
 trap cleanup EXIT
 psql() {
   compose exec -T postgres sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<< "$1"
@@ -163,6 +167,130 @@ console.log('Production container rate-limit headers and body cap passed.');
 JS
 test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
 test "$(psql 'select count(*) > 0 from auth_revoked_families r left join auth_token_families f using (family_id) where f.family_id is null;')" = t
+
+# PR-12: telemetry is disabled by default; logs are JSON, correlated and
+# carry no credentials, tokens, emails or raw identifiers.
+API_URL="http://$address" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const response = await fetch(`${process.env.API_URL}/api/v1`, { headers: { 'X-Request-ID': 'smoke-correlation-0001' } });
+assert.equal(response.headers.get('x-request-id'), 'smoke-correlation-0001');
+const generated = await fetch(`${process.env.API_URL}/api/v1`, { headers: { 'X-Request-ID': 'bad id' } });
+assert.match(generated.headers.get('x-request-id'), /^[0-9a-f-]{36}$/);
+JS
+compose logs --no-color --no-log-prefix api | node --input-type=module -e '
+  import assert from "node:assert/strict";
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const records = input.trim().split("\n").map((line) => JSON.parse(line));
+  for (const leaked of [
+    process.env.POSTGRES_PASSWORD, process.env.AUTH_SIGNING_KEY, "smoke password", "original password",
+    "replacement password", "@example.test", "Bearer ", "__Host-refresh", "eyJ",
+  ]) assert.equal(input.includes(leaked), false, `Log leak: ${leaked}`);
+  const completed = records.filter((record) => record.message === "http.request.completed");
+  assert.ok(completed.length > 20);
+  assert.ok(completed.every((record) => record.service === "ultra-nest-template" && record.requestId && !("traceId" in record)));
+  assert.ok(completed.some((record) => record.requestId === "smoke-correlation-0001"));
+  assert.ok(completed.some((record) => record.route === "/api/v1/auth/sessions/:id"));
+  assert.equal(completed.some((record) => String(record.route).includes("health")), false);
+  const { requestId: _r, ...rest } = completed.find((record) => record.route === "/api/v1/auth/sessions/:id");
+  assert.doesNotMatch(JSON.stringify(rest), /[0-9a-f]{8}-[0-9a-f]{4}-/);
+  console.log(`Disabled-telemetry JSON logs passed (${records.length} records, no secrets).`);
+'
+
+# An API from the same image exporting OTLP/HTTP to a local receiver on the
+# Compose network, then one whose collector is unreachable.
+image="$(docker inspect --format '{{.Config.Image}}' "$api_id")"
+network="${project}_default"
+docker run --detach --name "$otlp" --network "$network" node:24.21.0-bookworm-slim node -e '
+  require("node:http").createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk)).on("end", () => {
+      console.log(JSON.stringify({ path: request.url, authorization: request.headers.authorization ?? null, body }));
+      response.writeHead(200, { "content-type": "application/json" }).end("{}");
+    });
+  }).listen(4318);
+' > /dev/null
+run_api() {
+  local name="$1"; shift
+  docker run --detach --name "$name" --network "$network" --publish 127.0.0.1::3000 \
+    --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --init \
+    --env DATABASE_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB" \
+    --env AUTH_SIGNING_KEY --env AUTH_TRUSTED_ORIGINS --env RATE_LIMIT_AUTH_LIMIT \
+    "$@" "$image" > /dev/null
+}
+wait_ready() {
+  API_URL="http://$(docker port "$1" 3000)" node --input-type=module <<'JS'
+import { setTimeout } from 'node:timers/promises';
+const deadline = Date.now() + 60000;
+for (;;) {
+  const response = await fetch(`${process.env.API_URL}/api/v1/health/ready`).catch(() => undefined);
+  if (response?.status === 200) break;
+  if (Date.now() > deadline) throw new Error('Telemetry API did not become ready');
+  await setTimeout(250);
+}
+JS
+}
+stop_api() {
+  local started=$SECONDS
+  docker stop --time 30 "$1" > /dev/null
+  local code; code="$(docker inspect --format '{{.State.ExitCode}}' "$1")"
+  case "$code" in 0|143) ;; *) echo "Unexpected $1 exit: $code"; docker logs "$1"; exit 1 ;; esac
+  test $((SECONDS - started)) -lt 25
+}
+run_api "$otel_api" --env OTEL_ENABLED=true --env OTEL_SERVICE_NAME=smoke-otel \
+  --env OTEL_EXPORTER_OTLP_ENDPOINT="http://$otlp:4318" --env OTEL_TRACES_SAMPLER_ARG=1 \
+  --env OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20smoke-collector-token
+wait_ready "$otel_api"
+API_URL="http://$(docker port "$otel_api" 3000)" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const base = `${process.env.API_URL}/api/v1`;
+const registered = await fetch(`${base}/auth/register`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json', Origin: process.env.AUTH_TRUSTED_ORIGINS,
+    traceparent: '00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-01',
+  },
+  body: JSON.stringify({ email: 'otel-smoke@example.test', password: 'otel smoke password phrase' }),
+});
+assert.equal(registered.status, 201);
+const { accessToken } = await registered.json();
+assert.equal((await fetch(`${base}/users/me`, { headers: { Authorization: `Bearer ${accessToken}` } })).status, 200);
+JS
+stop_api "$otel_api"
+docker logs "$otlp" | node --input-type=module -e '
+  import assert from "node:assert/strict";
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const requests = input.trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(requests.every((request) => request.authorization === "Bearer smoke-collector-token"));
+  const spans = requests.filter((request) => request.path === "/v1/traces").flatMap((request) =>
+    JSON.parse(request.body).resourceSpans.flatMap((resource) => resource.scopeSpans.flatMap((scope) =>
+      scope.spans.map((span) => ({ ...span, scope: scope.scope.name })))));
+  const register = spans.find((span) => span.name === "POST /api/v1/auth/register");
+  assert.equal(register?.traceId, "5b8efff798038103d269b633813fc60c");
+  assert.equal(register.parentSpanId, "eee19b7ec3c1b174");
+  const pg = spans.filter((span) => span.scope === "@opentelemetry/instrumentation-pg");
+  assert.ok(pg.some((span) => span.parentSpanId === register.spanId), "pg spans must be children of the server span");
+  assert.ok(requests.some((request) => request.path === "/v1/metrics" && request.body.includes("http.server.request.duration")));
+  const bodies = requests.map((request) => request.body).join("\n");
+  for (const leaked of [process.env.POSTGRES_PASSWORD, process.env.AUTH_SIGNING_KEY, "otel-smoke@example.test", "otel smoke password", "eyJ", "smoke-collector-token", "drizzle."])
+    assert.equal(bodies.includes(leaked), false, `Telemetry leak: ${leaked}`);
+  console.log(`Production image OTLP export passed (${spans.length} spans, ${pg.length} PostgreSQL).`);
+'
+otel_logs="$(docker logs "$otel_api" 2>&1)"
+grep -q '"traceId":"5b8efff798038103d269b633813fc60c"' <<< "$otel_logs"
+if grep -q 'smoke-collector-token' <<< "$otel_logs"; then echo 'Collector header leaked to logs'; exit 1; fi
+
+run_api "$dead_api" --env OTEL_ENABLED=true --env OTEL_EXPORTER_OTLP_TIMEOUT=2000 \
+  --env OTEL_EXPORTER_OTLP_ENDPOINT="http://$project-no-collector:4318" --env OTEL_TRACES_SAMPLER_ARG=1
+wait_ready "$dead_api"
+API_URL="http://$(docker port "$dead_api" 3000)" node --input-type=module -e '
+  import assert from "node:assert/strict";
+  for (let i = 0; i < 5; i++) assert.equal((await fetch(`${process.env.API_URL}/api/v1`)).status, 200);
+'
+stop_api "$dead_api"
+echo 'Unreachable collector did not affect requests and shutdown stayed bounded.'
+docker rm --force "$otlp" "$otel_api" "$dead_api" > /dev/null
 
 # Exercise the exact image HEALTHCHECK command, including a real outage.
 healthcheck() {

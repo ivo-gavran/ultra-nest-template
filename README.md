@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-10: Security hardening**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
+A modular NestJS REST starter, currently at **PR-12: Observability and operational behavior**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
 
 ## Requirements and installation
 
@@ -45,6 +45,7 @@ The Nest CLI compiles TypeScript and restarts on source changes. Configuration l
 | `RATE_LIMIT_*`             | See [security guide](docs/security.md)             | 100/60s global; 5/60s auth; 3/60s acct  |
 | `TRUST_PROXY`              | `false`, hop count 1–10, or IPs/CIDRs/presets      | `false`                                 |
 | `REQUEST_BODY_LIMIT_BYTES` | Integer 1024–1048576                               | `16384`                                 |
+| `SENTRY_DSN`, `OTEL_*`     | See [observability guide](docs/observability.md)   | Disabled                                |
 
 Missing `DATABASE_URL`, invalid ports or invalid flags prevent startup. Empty strings are invalid. The API creates a lazy PostgreSQL pool: connections open on the first database query, so startup alone does not verify database availability. Example credentials are for local development only. Keep `.env` untracked and inject production values through the deployment environment.
 
@@ -156,6 +157,17 @@ Users and admins can manage their own profiles and sessions. Existing SQL owner 
 
 SIGTERM disables readiness, gives routing five seconds to drain, then follows Nest's existing HTTP shutdown and Drizzle pool cleanup. Compose retains its 30-second outer stop deadline. Docker HEALTHCHECK uses readiness; database failure must not be used as a liveness restart trigger. See [health behavior, timeout limitations and Kubernetes examples](docs/health.md) and [PR-11 verification](docs/pr-11-verification.md).
 
+## Observability
+
+Logs are one JSON object per line (Nest's JSON format plus `service`, `requestId` and, when tracing, `traceId`/`spanId`).
+
+- **Request log:** each request produces exactly one `http.request.completed` or `http.request.aborted` record with method, route template, status and duration. Bodies, query strings, headers, cookies, IPs and PII are never logged, and successful health probes are silent.
+- **Request IDs:** every response carries `X-Request-ID`. A safe inbound value (16–64 of `A-Za-z0-9_-`) is echoed, otherwise a random UUID is generated. It is a correlation value only, never identity.
+- **Unexpected errors:** they keep the generic 500 body and produce one sanitized error log, one span exception and, when `SENTRY_DSN` is set, one privacy-scrubbed Sentry event. 4xx outcomes are never reported.
+- **OpenTelemetry:** with `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT`, the API exports route-named HTTP server spans with PostgreSQL child spans (no parameter values) and a bounded `http.server.request.duration` histogram over OTLP/HTTP. W3C context propagates, and sampling defaults to 10%. Telemetry is flushed once, with a bound, at shutdown.
+
+Neither SDK loads, and no connection is opened, when telemetry is disabled. A missing or unreachable collector never affects startup or requests. See the [observability guide](docs/observability.md) and [PR-12 verification](docs/pr-12-verification.md).
+
 ## Docker and CI
 
 With Docker and Compose installed:
@@ -204,5 +216,9 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [Bearer session model](docs/adr/002-auth-session-model.md)
 - [Security hardening guide](docs/security.md)
 - [PR-10 verification results](docs/pr-10-verification.md)
+- [Health and lifecycle](docs/health.md)
+- [PR-11 verification results](docs/pr-11-verification.md)
+- [Observability guide](docs/observability.md)
+- [PR-12 verification results](docs/pr-12-verification.md)
 
-Next milestone: **PR-12 observability and operational behavior**. Optional extensions remain opt-in.
+Next milestone: **PR-13 release preparation**. Optional extensions remain opt-in.

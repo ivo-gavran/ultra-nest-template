@@ -144,6 +144,7 @@ these parsers).
 - CORS: exact `AUTH_TRUSTED_ORIGINS`, credentials on, methods
   GET/POST/PATCH/DELETE/OPTIONS; wildcards with credentials are impossible
   because origins are validated exact HTTPS (loopback HTTP in dev only).
+  PR-12 adds `X-Request-ID` to the allowed and exposed headers only.
 - `BrowserOriginGuard` still rejects missing/foreign `Origin` on mutations.
 - `__Host-refresh` keeps HttpOnly/Secure/SameSite=Lax/Path=/ with no Domain.
 - Auth and users responses keep `Cache-Control: no-store`.
@@ -152,12 +153,35 @@ these parsers).
 ## Sensitive data policy
 
 Nothing in the request path logs `Authorization`, `Cookie`/`Set-Cookie`,
-tokens, passwords, hashes, request bodies or PII. The only application log
-event remains `auth.session.revoked` with no identifiers. Database and auth
+tokens, passwords, hashes, request bodies or PII. Database and auth
 errors are mapped to generic messages at service/repository boundaries;
 public errors never contain SQL, parameters, causes or stack traces.
-Throttler keys are SHA-256 hashed by the guard and never logged. Structured
-logging, correlation IDs, Sentry and OpenTelemetry are PR-12, not PR-10.
+Throttler keys are SHA-256 hashed by the guard and never logged.
+
+PR-12 adds the following, all allowlist-based (see the
+[observability guide](observability.md)):
+
+- One `http.request.completed`/`aborted` log per request (method, route
+  template, status, duration) and a sanitized `http.request.failed` for
+  unexpected errors. `auth.session.revoked` is unchanged and still carries
+  no identifiers.
+- Error messages keep only their first line, with URLs, emails, JWTs,
+  quoted values, IPs and long tokens masked. Error own-properties (Drizzle
+  query params, pg `detail`) are never serialized.
+- Spans and metrics never record raw URLs, query strings, headers, client
+  IPs, user agents, SQL statement text, SQL parameter values, user/session
+  IDs or connection strings. A pre-export span processor removes
+  `db.query.text` / `db.statement` and related keys by name (the pg
+  instrumentation attaches statement text even with enhanced reporting
+  off). Sentry sends no request data, users, breadcrumbs, local variables
+  or source lines.
+- Explicit `HttpException` 5xx values other than 503 are reported once to
+  Sentry; 4xx and deliberate 503 outcomes are not.
+- `X-Request-ID` is accepted only as 16–64 `A-Za-z0-9_-` characters,
+  otherwise a random UUID is generated. It is client-controllable and must
+  never be treated as identity, authorization or a rate-limit key.
+- Sentry DSNs, OTLP endpoints and collector headers are validated and never
+  printed. Validation errors name the key, not the value.
 
 ## Password hashing resources
 

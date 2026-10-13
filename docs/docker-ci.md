@@ -28,6 +28,7 @@ Compose starts PostgreSQL 17, waits for its `pg_isready` health check, then star
 | `RATE_LIMIT_*`             | Optional; Compose defaults match the validated app defaults (100/60s global, 5/60s auth, 3/60s account)       |
 | `TRUST_PROXY`              | Optional; defaults `false`. Set hop count or proxy IPs only behind a known proxy that alone can reach the API |
 | `REQUEST_BODY_LIMIT_BYTES` | Optional; defaults to 16384 (16 KiB JSON/form cap, 413 beyond)                                                |
+| `SENTRY_DSN`, `OTEL_*`     | Optional telemetry passthrough; empty/`false` by default (see [observability](observability.md))              |
 
 See [security](security.md) for rate-limit, proxy-trust and multi-instance details. Behind a TLS-terminating proxy, set `TRUST_PROXY` to that proxy and restrict network ingress so clients cannot reach the API directly.
 
@@ -70,7 +71,7 @@ All stages use `node:24.21.0-bookworm-slim`, matching `.nvmrc`. The tooling stag
 
 The final image copies only `package.json`, production `node_modules` and compiled `dist`. The manifest retains `type: module` for ESM. `.dockerignore` uses an allowlist so local dependencies, `.env`, Git metadata, tests, docs and the compatibility spike stay outside the build context. Both application and migration targets run as the unprivileged `node` user. Local Compose also runs the API with a read-only filesystem, temporary `/tmp`, no Linux capabilities and no privilege escalation.
 
-The exec-form `node dist/main.js` command receives SIGTERM directly, and the existing Nest shutdown hooks disable readiness, apply Terminus's five-second SIGTERM propagation window, drain HTTP requests, then let Drizzle close the pool. Compose supplies a small init process and a 30-second stop grace period. No package-manager or shell wrapper sits between Node and runtime shutdown signals. The smoke test accepts API exit 0 or 143 (normal SIGTERM), also exercises SIGINT (0 or 130), requires PostgreSQL exit 0 and rejects forced-kill behavior. Arbitrary stuck application handlers/hooks still need the supervisor's outer deadline; see [lifecycle limitations](health.md#shutdown-order-and-ownership).
+The exec-form `node dist/main.js` command receives SIGTERM directly, and the existing Nest shutdown hooks disable readiness, apply Terminus's five-second SIGTERM propagation window, drain HTTP requests, then let Drizzle close the pool and flush telemetry once (bounded by `OTEL_EXPORTER_OTLP_TIMEOUT`). The image needs no `--import`/loader flag: `main.js` starts instrumentation before dynamically importing the application. API logs are JSON lines on stdout/stderr. Compose supplies a small init process and a 30-second stop grace period. No package-manager or shell wrapper sits between Node and runtime shutdown signals. The smoke test accepts API exit 0 or 143 (normal SIGTERM), also exercises SIGINT (0 or 130), requires PostgreSQL exit 0 and rejects forced-kill behavior. Arbitrary stuck application handlers/hooks still need the supervisor's outer deadline; see [lifecycle limitations](health.md#shutdown-order-and-ownership).
 
 ## Continuous integration
 
@@ -87,7 +88,15 @@ The `Verify` job executes, in order:
 7. `pnpm build`
 8. `bash scripts/verify-compose.sh`
 
-The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window. It creates a unique project with an ephemeral host port and generated test credentials/signing key, then removes only its own containers and volume. It ignores the developer's `.env` and needs no repository secrets. Run it locally with Node and Docker on PATH to reproduce the container checks.
+The test suites run sequentially because both rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
+
+Observability checks in the smoke test (PR-12):
+
+- The default, telemetry-disabled API's JSON logs contain completion records with request IDs and route templates, with no secrets, emails, tokens or raw IDs.
+- A second API container from the same image runs with `OTEL_ENABLED=true` against a throwaway OTLP/HTTP receiver container on the Compose network. It must export a traceparent-continued server span with PostgreSQL child spans and the request-duration metric at SIGTERM, with no leaked values.
+- A third container points at a nonexistent collector. It must keep serving and stop within the deadline.
+
+It creates a unique project with an ephemeral host port and generated test credentials/signing key, then removes only its own containers and volume. It ignores the developer's `.env` and needs no repository secrets. Run it locally with Node and Docker on PATH to reproduce the container checks.
 
 Dependabot checks the root npm/pnpm manifest/lockfile, GitHub Actions and Docker definitions weekly. Development minor/patch updates are grouped; updates are PRs requiring review and CI. No automatic merge is configured. The historical PR-00 spike is intentionally not an update target. Review Node changes together across `.nvmrc`, package engines, Dockerfile and the smoke test; pnpm remains pinned consistently in the manifest, image and workflow.
 
