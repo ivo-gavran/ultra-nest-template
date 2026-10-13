@@ -1,0 +1,163 @@
+# Observability
+
+PR-12 adds structured JSON logs, request correlation, optional Sentry error reporting and optional OpenTelemetry traces/metrics. Both SDKs are disabled by default and need no external service: without `SENTRY_DSN` and with `OTEL_ENABLED=false`, the API opens no telemetry connections and loads neither SDK.
+
+## Ownership
+
+| Signal                      | Owner                                              | Notes                                                                    |
+| --------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------ |
+| Logs                        | Nest `ConsoleLogger` in JSON mode (`JsonLogger`)   | Always on; stdout/stderr only                                            |
+| Request ID                  | HTTP middleware + `AsyncLocalStorage`              | Always on; `X-Request-ID` response header                                |
+| Unexpected errors           | `ObservabilityExceptionFilter` (single global)     | One log, one span exception, one Sentry event                            |
+| Traces, context propagation | OpenTelemetry `NodeTracerProvider` (only global)   | Manual HTTP server spans + `@opentelemetry/instrumentation-pg`           |
+| Metrics                     | OpenTelemetry `MeterProvider` (deliberately local) | One manual histogram; instrumentation libraries keep a no-op meter       |
+| Error events                | Sentry (`@sentry/nestjs`), errors only             | No tracing, no auto-instrumentation, no OpenTelemetry provider, no hooks |
+
+OpenTelemetry is the only tracer. Sentry runs with `defaultIntegrations: false`, `enableOpenTelemetrySetup: false`, `enableRuntimeChannelInjection: false` and `tracesSampleRate: 0`, so it installs no module hooks, HTTP/pg/Express instrumentation, global handlers, propagator or span exporter. Sentry events carry the OpenTelemetry `trace_id`/`span_id` as tags for cross-navigation. There is no duplicate span or double export to reconcile.
+
+## Startup order (ESM)
+
+`src/main.ts` validates the application and telemetry environment, starts telemetry, then dynamically imports `src/bootstrap.ts` (NestJS, Express, Drizzle, pg). Instrumentation hooks modules as they load; pg imported before `registerInstrumentations` produces no database spans. A subprocess test of the compiled `main.js` and the Compose smoke test (the production image) assert database spans, and a manual negative control (static import) produces none.
+
+`@opentelemetry/instrumentation-pg` patches `pg/lib/client.js` via `require-in-the-middle`. pg's ESM entry re-exports its CommonJS implementation, so no `--import`/`--experimental-loader` flag or `import-in-the-middle` hook is required on Node 24. Keep `main.ts` free of static application imports.
+
+Invalid configuration (either schema) exits with code 1 before any SDK starts. Diagnostics list keys and rule messages only, never values: `Config validation error: OTEL_EXPORTER_OTLP_ENDPOINT: Required when OTEL_ENABLED=true`.
+
+## Configuration
+
+| Variable                      | Accepted values                                                     | Default               |
+| ----------------------------- | ------------------------------------------------------------------- | --------------------- |
+| `SENTRY_DSN`                  | Sentry DSN URL with a public key, no secret; HTTPS in production    | Unset (disabled)      |
+| `OTEL_ENABLED`                | `true` or `false`                                                   | `false`               |
+| `OTEL_SERVICE_NAME`           | 1–63 of `A-Z a-z 0-9 . _ -`; also the log `service` field           | `ultra-nest-template` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http(s)` base URL, no credentials/query/fragment; required when on | Unset                 |
+| `OTEL_EXPORTER_OTLP_HEADERS`  | `key=value,key2=value2` (values percent-encoded), at most 16        | None                  |
+| `OTEL_EXPORTER_OTLP_TIMEOUT`  | Milliseconds 1000–10000; per export and for each shutdown flush     | `5000`                |
+| `OTEL_TRACES_SAMPLER_ARG`     | Decimal ratio 0–1                                                   | `0.1`                 |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds 5000–300000                                            | `60000`               |
+
+Exports use OTLP/HTTP JSON to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces` and `/v1/metrics` (an OpenTelemetry Collector's port 4318, or a vendor's OTLP endpoint). Put collector credentials in `OTEL_EXPORTER_OTLP_HEADERS`, never in the URL; neither value is logged. Blank values are treated as unset. Other `OTEL_*` SDK variables (resource attributes, samplers, limits, batch settings, exporter-specific endpoints) are not part of the contract; the code passes explicit values for each. Resource attributes are only `service.name` and `deployment.environment.name` (from `NODE_ENV`): no host, process, container or user attributes.
+
+Spans are sampled with `ParentBased(TraceIdRatio(OTEL_TRACES_SAMPLER_ARG))`. An inbound `traceparent` continues the trace, and an unsampled parent is honored, but a client cannot raise sampling above the configured ratio: sampled remote parents use the same ratio. Only W3C Trace Context is propagated. W3C baggage is neither extracted nor injected because it can carry user data.
+
+## Logs
+
+Every record is one JSON line in Nest's native format plus correlation:
+
+```json
+{
+  "timestamp": 1791900000000,
+  "level": "log",
+  "service": "ultra-nest-template",
+  "pid": 1,
+  "context": "HTTP",
+  "message": "http.request.completed",
+  "requestId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "spanId": "00f067aa0ba902b7",
+  "method": "GET",
+  "route": "/api/v1/users/:id",
+  "statusCode": 200,
+  "durationMs": 3.112
+}
+```
+
+- `level` uses Nest names (`log`, `warn`, `error`, ...); `NEST_LOG_LEVEL` is honored by `ConsoleLogger`. `timestamp` is epoch milliseconds.
+- `requestId` is present inside a request; `traceId`/`spanId` only when OpenTelemetry has an active span (including unsampled ones).
+- Structured fields are an allowlist: `method`, `route`, `statusCode`, `durationMs`, plus a sanitized `error`. Other params passed to a logger are dropped, as are non-string messages. Free-text messages from non-error logs are written as given, so never interpolate request data, identifiers or PII into log messages.
+- Errors are reduced to `{type, code, message, stack, cause}`. The message keeps only its first line (Drizzle appends bound parameters on the second), masks URLs, emails, JWTs, quoted literals, IP addresses and long opaque tokens/UUIDs, and is capped at 200 characters. Stacks contain only `at ...` frames. Own properties such as `DrizzleQueryError.query/params` or pg's `detail` are never written.
+
+Events:
+
+| Message                   | Level   | When                                                                                  |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `http.request.completed`  | `log`   | Once per response that was fully sent (`warn` for 5xx). Route omitted when unmatched. |
+| `http.request.aborted`    | `warn`  | Once when the client disconnected before the response finished; no status code.       |
+| `http.request.failed`     | `error` | Once per unexpected (non-`HttpException`, non-4xx) error, with the sanitized error.   |
+| `telemetry.export.failed` | `warn`  | OTLP export error, at most once per minute, no endpoint or error text.                |
+| `auth.session.revoked`    | `log`   | Unchanged from PR-07.                                                                 |
+
+Successful `GET /api/v1/health/live` and `/ready` probes produce no log, span or metric. Failed probes (for example readiness 503) are logged. Raw URLs, query strings, headers, cookies, bodies, client IPs and user agents are never logged.
+
+## Request correlation
+
+The observability middleware runs before every other middleware (IP validation, body parsing, security headers, CSRF, CORS), so 400/403/404/413 failures before routing and 401/403/429 from guards carry the same ID in logs, spans and the response header.
+
+- Inbound `X-Request-ID` is accepted only when it matches `^[A-Za-z0-9_-]{16,64}$`. Anything else (absent, short, long, spaces, dots, `@`, repeated headers) is replaced with a random UUID. This rules out log injection, oversized values, emails and JWTs.
+- The selected ID is always returned in `X-Request-ID` and exposed to CORS clients; browsers may send it (it is an allowed CORS header).
+- The ID lives in `AsyncLocalStorage`, isolated per request (tested with concurrent requests and after JSON body parsing). `currentRequestId()` is for correlation only, never for identity, authorization, tenancy or rate limiting; clients can choose it.
+
+## Errors and Sentry
+
+Expected outcomes are `HttpException`s (400, 401, 403, 404, 409, 413, 429, 503, ...). They keep Nest's existing responses and are not reported. For anything else, the global `ObservabilityExceptionFilter` extends Nest's `BaseExceptionFilter`:
+
+- Body-parser `http-errors` keep their status and body (for example 413), and client errors among them are not reported.
+- Every other error returns Nest's generic `{"statusCode":500,"message":"Internal server error"}` with `X-Request-ID`. It produces exactly one `http.request.failed` log, one span exception event (sanitized type/message, ERROR status) and one Sentry event. Nothing is swallowed or rethrown, and Nest's default `ExceptionsHandler` log is replaced rather than duplicated.
+
+Sentry is enabled exactly when `SENTRY_DSN` is set. Its privacy settings are explicit:
+
+- Collection: `dataCollection` disables user info, cookies, headers, bodies, query params, database data and frame variables, and sets context lines to 0. `includeServerName: false`, `maxBreadcrumbs: 0`, `sendClientReports: false`.
+- Integrations: only `linkedErrors` and `dedupe` (causes up to the default depth).
+- `beforeSend` scrubs again at send time. It deletes request, user, extra, breadcrumbs, server name and modules, keeps only the trace context, sanitizes exception values and drops frame variables/source context. Tags are allowlisted: `service`, `request_id`, `http.route`, `http.request.method`, `trace_id`, `span_id`.
+
+Stack frames (file, function, line) are sent; source lines are not. Sentry does not install process-level `uncaughtException`/`unhandledRejection` handlers here. Crashes outside request handling are logged by Node/Nest and are not reported to Sentry. This is a deliberate trade-off to avoid competing process handlers.
+
+## Traces
+
+Instead of `@opentelemetry/instrumentation-http`, HTTP server spans are created manually in the middleware. That instrumentation records raw paths, query strings, client addresses, user agents and Host-derived server addresses at span start, with no way to omit them.
+
+- Name: `METHOD /route/template` (for example `GET /api/v1/users/:id`); just `METHOD` when unmatched (404, failures before routing). Methods outside the standard set become `_OTHER`.
+- Attributes: `http.request.method`, `http.route`, `http.response.status_code`, `error.type` (`5xx` status or `aborted`). Status ERROR for 5xx.
+- PostgreSQL child spans come from `instrumentation-pg` with `requireParentSpan` (no orphan pool/health spans), `ignoreConnectSpans`, no enhanced reporting (no parameter values), no SQLCommenter and no trace-context injection into SQL. Attributes include `db.system.name`, `db.namespace`, `server.address`/`port` and the parameterized `db.query.text`. They never include parameter values, `db.user` or connection strings.
+- A span processor drops free-text status messages before export (pg puts raw driver errors there). pg exception events are already reduced to type and SQLSTATE.
+- Drizzle's own tracer is inactive in drizzle-orm 0.45.4. Tests assert that no `drizzle.*` attributes are exported.
+- Span limits: 64 attributes, 2048-character values, 32 events. Batching: queue 2048, batch 512, 5 s delay, export timeout `OTEL_EXPORTER_OTLP_TIMEOUT`.
+
+Privacy is applied when data is collected, by never recording the data, rather than by filtering at export.
+
+## Metrics
+
+A single histogram, `http.server.request.duration` (seconds, semantic-conventions buckets), counts every non-probe request:
+
+- Attributes: `http.request.method`, `http.route` (template, omitted when unmatched), `http.response.status_code` (absent when aborted), `error.type`.
+- Request count and rate are the histogram count. Status categories derive from `http.response.status_code`.
+- Cardinality is bounded by the route table, the method set and the status codes. There are no user IDs, emails, raw paths, IPs, sessions or tokens.
+- Export period: `OTEL_METRIC_EXPORT_INTERVAL`, plus one final export at shutdown.
+
+Runtime metrics are not included. No Prometheus endpoint, Grafana or collector is bundled. Point `OTEL_EXPORTER_OTLP_ENDPOINT` at whatever collector or vendor you operate.
+
+## Shutdown
+
+On SIGTERM, Nest 12 runs the Terminus readiness drain (5 s), then closes the HTTP server (in-flight requests finish), then runs `onApplicationShutdown` hooks: the Drizzle pool close and `ObservabilityModule`'s telemetry shutdown. Telemetry is flushed and stopped exactly once:
+
+- Spans, metrics and Sentry are flushed in parallel, bounded by `OTEL_EXPORTER_OTLP_TIMEOUT` plus a 1 s grace, then the globals are disabled. Afterwards no spans are created or exported and no Sentry event is sent.
+- Repeated or concurrent shutdown calls share the same result.
+- No signal handlers are added, and pool cleanup is untouched.
+- An unreachable or hanging collector cannot extend shutdown past that bound. Worst case is about 16 s, within Compose's 30 s `stop_grace_period`.
+
+Every request served before the HTTP server closes is exported. Nest runs shutdown hooks module by module, so the pool close may wait for the bounded telemetry flush (or vice versa); neither depends on the other.
+
+## Operating it
+
+- Local collector: run an OpenTelemetry Collector with an OTLP/HTTP receiver, then set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`. Compose passes the telemetry variables through and defaults them to off.
+- Production: use HTTPS endpoints and DSNs, keep `OTEL_TRACES_SAMPLER_ARG` low, and supply `SENTRY_DSN`/`OTEL_EXPORTER_OTLP_HEADERS` from your secret store.
+- If an upstream gateway is the trust boundary for tracing, strip inbound `traceparent` there.
+- Logs go to stdout/stderr only. Shipping, retention and access control belong to the platform.
+
+## Tests
+
+- `test/observability.spec.ts` covers ID validation, concurrency isolation, redaction, the logger allowlist, telemetry configuration and Sentry scrubbing.
+- `test/integration/observability.spec.ts` runs against real PostgreSQL with an in-memory span exporter, a pull metric reader and a Sentry recording transport. It covers:
+  - the 400/401/403/404/413/429/500 matrix, with one log each and Sentry/error log/span exception only for 500;
+  - leak checks;
+  - concurrency, body parsing and invalid IDs;
+  - CORS exposure;
+  - W3C continuation and unsampled parents;
+  - aborts and quiet probes;
+  - metric cardinality;
+  - sampling 0;
+  - disabled telemetry (no connections);
+  - refused and black-holed collectors;
+  - flush-once.
+- `test/integration/observability-bootstrap.spec.ts` spawns compiled `main.js` with a local OTLP receiver and Sentry pointed at it. It verifies early instrumentation (pg child spans), traceparent continuation, export of spans and metrics once at SIGTERM, collector headers, no Sentry traffic or extra tracers, and no secrets in output.
+- `scripts/verify-compose.sh` checks disabled-telemetry JSON logs in the production image, OTLP export from the image to a receiver on the Compose network, and an unreachable collector.

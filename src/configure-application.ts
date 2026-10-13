@@ -8,10 +8,16 @@ import {
   applyBodyLimits,
   applyTrustProxy,
 } from './modules/security/http-hardening.js';
+import { observeHttpRequests } from './modules/observability/http-observability.js';
 
 export function configureApplication(app: INestApplication): void {
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new StandardSchemaValidationPipe());
+  app.use(
+    observeHttpRequests({
+      quietPaths: ['/api/v1/health/live', '/api/v1/health/ready'],
+    }),
+  );
 
   const config = app.get(ConfigService<Environment, true>);
   applyTrustProxy(app, {
@@ -36,7 +42,8 @@ export function configureApplication(app: INestApplication): void {
     origin: origins,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+    exposedHeaders: ['X-Request-ID'],
   });
   if (config.get('SWAGGER_ENABLED', { infer: true })) {
     const options = new DocumentBuilder()

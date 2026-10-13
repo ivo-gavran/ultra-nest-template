@@ -1,7 +1,7 @@
 import { isIP } from 'node:net';
 import { z } from 'zod';
 
-const integerEnv = (min: number, max: number, fallback: string) =>
+export const integerEnv = (min: number, max: number, fallback: string) =>
   z
     .string()
     .regex(/^\d+$/, 'Must be a non-negative decimal integer')
