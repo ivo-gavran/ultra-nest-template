@@ -191,3 +191,7 @@ headroom, and consider lower per-IP auth limits behind shared NATs.
 - No WAF/TLS termination in core; deploy behind a TLS-terminating proxy.
 
 See [PR-10 verification](pr-10-verification.md) for executed evidence.
+
+## Health probe exemption
+
+Only the public `HealthController` skips all named throttlers (`global`, `auth`, `account`) using `@SkipThrottle`. `/api/v1/health/live` and `/api/v1/health/ready` retain native security headers, CSRF/CORS configuration and no-store responses. This exception does not alter guard ordering or budgets on other controllers. See [health and lifecycle](health.md).

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HealthModule } from './modules/health/health.module.js';
 import { AppAuthorizationModule } from './modules/authorization/authorization.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -23,6 +24,7 @@ import { environmentSchema } from './config/environment.js';
     // AuthenticationModule is scanned before the global authorization guard.
     AuthModule,
     AppAuthorizationModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

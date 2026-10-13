@@ -44,9 +44,9 @@ export class ExampleService {
 }
 ```
 
-The pool has a maximum of 10 connections per application instance, a 5-second connection acquisition timeout and a 30-second idle timeout. Budget total connections across instances against PostgreSQL capacity. Query logging is disabled. The pool connects lazily: creating the Nest app is not a readiness check. Readiness endpoints belong to PR-11.
+The pool has a maximum of 10 connections per application instance, a 5-second connection acquisition timeout and a 30-second idle timeout. Budget total connections across instances against PostgreSQL capacity. Query logging is disabled. The pool connects lazily: creating the Nest app is not a readiness check. The public [readiness probe](health.md) runs `SELECT 1` with a one-second HTTP deadline and at most one outstanding health acquisition/query. A timed-out acquisition retains its slot until this existing five-second pool bound or a late acquisition settles.
 
-`autoCloseConnection: true` delegates ownership and cleanup to `@nestjs/drizzle`. `app.enableShutdownHooks()` enables the same cleanup for process termination; `app.close()` also awaits it. Release checked-out clients in `finally` blocks and finish transactions so the pool can drain. Feature services must not call `pool.end()` themselves.
+`autoCloseConnection: true` delegates ownership and cleanup to `@nestjs/drizzle`. `app.enableShutdownHooks()` enables the same cleanup for process termination; `app.close()` also awaits it. Release checked-out clients in `finally` blocks and finish transactions so the pool can drain. Feature services must not call `pool.end()` themselves. The health indicator disables readiness in `onModuleDestroy`, before Terminus's five-second SIGTERM propagation delay. Nest drains HTTP before Drizzle closes the pool in `onApplicationShutdown`; see [shutdown ordering and outer deadlines](health.md#shutdown-order-and-ownership).
 
 ## Migration workflow
 

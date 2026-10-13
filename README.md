@@ -148,7 +148,13 @@ Users and admins can manage their own profiles and sessions. Existing SQL owner 
 
 ## Security hardening
 
-`SecurityModule` registers `@nestjs/throttler` before the authentication guard: 100 requests/60s per IP per handler on all routes, an additional 5/60s (5-minute block) per IP for register/login/refresh/logout, and 3/60s per IP for password changes and admin mutations. Read-only routes, session administration, profile updates and self-deletion receive only the global limiter. Users behind one IP share budgets; submitted emails and bearer identities never change throttle keys. Throttling returns generic 429 responses with `X-RateLimit-*`/`Retry-After-*` headers before any scrypt work. `TRUST_PROXY` (default `false`) strictly validates proxy hops or IP/CIDR allowlists so forwarding headers cannot spoof throttling identity; JSON and URL-encoded bodies are capped at 16 KiB (`REQUEST_BODY_LIMIT_BYTES`) with 413 responses. Native security headers, CSRF, exact-origin credentialed CORS, the `__Host-refresh` cookie and no-store auth/users responses are unchanged. Limits are per-process in memory; multi-instance shared storage is documented, not bundled. See the [security guide](docs/security.md) and [PR-10 verification](docs/pr-10-verification.md).
+`SecurityModule` registers `@nestjs/throttler` before the authentication guard: 100 requests/60s per IP per handler on business routes (health probes are exempt), an additional 5/60s (5-minute block) per IP for register/login/refresh/logout, and 3/60s per IP for password changes and admin mutations. Read-only routes, session administration, profile updates and self-deletion receive only the global limiter. Users behind one IP share budgets; submitted emails and bearer identities never change throttle keys. Throttling returns generic 429 responses with `X-RateLimit-*`/`Retry-After-*` headers before any scrypt work. `TRUST_PROXY` (default `false`) strictly validates proxy hops or IP/CIDR allowlists so forwarding headers cannot spoof throttling identity; JSON and URL-encoded bodies are capped at 16 KiB (`REQUEST_BODY_LIMIT_BYTES`) with 413 responses. Native security headers, CSRF, exact-origin credentialed CORS, the `__Host-refresh` cookie and no-store auth/users responses are unchanged. Limits are per-process in memory; multi-instance shared storage is documented, not bundled. See the [security guide](docs/security.md) and [PR-10 verification](docs/pr-10-verification.md).
+
+## Health and lifecycle
+
+`GET /api/v1/health/live` returns 200 without accessing PostgreSQL. `GET /api/v1/health/ready` returns 200 when PostgreSQL answers within one second, or 503 on outage, timeout or shutdown. Both are public, retain security headers and skip rate limiting. Concurrent probes share bounded database work; readiness recovers without an application restart.
+
+SIGTERM disables readiness, gives routing five seconds to drain, then follows Nest's existing HTTP shutdown and Drizzle pool cleanup. Compose retains its 30-second outer stop deadline. Docker HEALTHCHECK uses readiness; database failure must not be used as a liveness restart trigger. See [health behavior, timeout limitations and Kubernetes examples](docs/health.md) and [PR-11 verification](docs/pr-11-verification.md).
 
 ## Docker and CI
 
@@ -199,4 +205,4 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [Security hardening guide](docs/security.md)
 - [PR-10 verification results](docs/pr-10-verification.md)
 
-Next milestone: **PR-11 health checks and lifecycle**. Observability remains PR-12. Optional extensions remain opt-in.
+Next milestone: **PR-12 observability and operational behavior**. Optional extensions remain opt-in.
