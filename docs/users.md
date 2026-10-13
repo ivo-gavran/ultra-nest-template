@@ -2,6 +2,8 @@
 
 PR-09 adds account endpoints in `UsersModule`, using the existing PostgreSQL schema, package-backed scrypt, bearer authentication and explicit `UsersPolicy` abilities. Authentication endpoints remain in `AuthModule`. No migration, dependency or environment setting is added.
 
+PR-10 adds rate limiting in front of these endpoints (see [security](security.md)): password changes and administrator update/delete are limited to 3 requests per 60 s per authenticated user; profile update and account deletion rely on the stricter auth limiter plus the global 100/60 s per-IP limit. JSON bodies are capped at 16 KiB by default (413 beyond that).
+
 ## HTTP contracts
 
 All paths below start with `/api/v1`. Every route requires a verified bearer JWT; every mutation additionally requires an exact trusted `Origin` and retains native CSRF protection. Credentialed CORS permits PATCH and DELETE. All users responses, including rejected requests, use `Cache-Control: no-store`.
@@ -78,7 +80,7 @@ The internal `UsersService` still supports strict ordinary-user `create`, `findB
 
 PostgreSQL's unique index on `lower(email)` is authoritative, including mixed-case direct SQL and concurrent requests. There is no racy pre-check. Repository writes maintain `updatedAt` with `statement_timestamp()` and preserve `createdAt`; direct SQL callers must maintain timestamps too. Apply existing migrations explicitly with `pnpm db:migrate`; startup does not push schemas.
 
-New passwords have 12–128 JavaScript code units, are not trimmed, and fit 4096 bytes after NFKC normalization. The pinned `@nestjs/authentication@0.1.1` owns normalization, salts, hash encoding and verification. Production scrypt defaults remain `logN=17`, `r=8`, `p=1`, 16-byte salt, 32-byte derived key: approximately 128 MiB per concurrent derivation. Registration now performs hash then verification sequentially; login/password changes also require derivation capacity. Budget memory/threadpool usage; rate limiting remains PR-10. Tests use reduced cost only through test-provider overrides, plus a real production-cost password utility test.
+New passwords have 12–128 JavaScript code units, are not trimmed, and fit 4096 bytes after NFKC normalization. The pinned `@nestjs/authentication@0.1.1` owns normalization, salts, hash encoding and verification. Production scrypt defaults remain `logN=17`, `r=8`, `p=1`, 16-byte salt, 32-byte derived key: approximately 128 MiB per concurrent derivation. Registration performs hash then verification sequentially (kept deliberately so the verified-login credential-version check protects first token issue; see [security](security.md#password-hashing-resources)); login/password changes also require derivation capacity. Budget memory/threadpool usage; PR-10 rate limiting runs before these derivations. Tests use reduced cost only through test-provider overrides, plus a real production-cost password utility test.
 
 ## Verification
 

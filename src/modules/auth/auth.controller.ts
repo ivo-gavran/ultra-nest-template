@@ -18,7 +18,12 @@ import {
 import type { Response } from 'express';
 import { createUserSchema } from '../users/schemas/user.schema.js';
 import type { CreateUserInput } from '../users/schemas/user.schema.js';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service.js';
+import {
+  hashEmailBodyTracker,
+  clientIpTracker,
+} from '../security/throttle-trackers.js';
 import { BrowserOriginGuard } from './browser-origin.guard.js';
 import {
   loginSchema,
@@ -32,11 +37,17 @@ import { cookieName, cookieOptions } from './refresh-cookie.js';
 @Controller('auth')
 @ApiTags('Authentication')
 @UseGuards(BrowserOriginGuard)
+// Auth routes are exempt from the generic `account` limiter; the stricter
+// `auth` limiter applies per client IP plus, on register/login, per hashed
+// submitted email (falling back to the client IP without a string email).
+@SkipThrottle({ account: true })
+@Throttle({ auth: { getTracker: clientIpTracker } })
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
   @Post('register')
+  @Throttle({ auth: { getTracker: hashEmailBodyTracker } })
   @ApiCreatedResponse({ standardSchema: accessTokenSchema })
   async register(
     @Body({ schema: createUserSchema }) input: CreateUserInput,
@@ -47,6 +58,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @Throttle({ auth: { getTracker: hashEmailBodyTracker } })
   @HttpCode(200)
   @ApiOkResponse({ standardSchema: accessTokenSchema })
   async login(

@@ -1,4 +1,27 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
+
+const integerEnv = (min: number, max: number, fallback: string) =>
+  z
+    .string()
+    .regex(/^\d+$/, 'Must be a non-negative decimal integer')
+    .default(fallback)
+    .pipe(z.coerce.number<string>().int().min(min).max(max));
+
+const proxyEntrySchema = z.string().refine((value) => {
+  if (['loopback', 'linklocal', 'uniquelocal'].includes(value)) return true;
+  const slash = value.lastIndexOf('/');
+  if (slash === -1) return isIP(value) > 0;
+  const address = value.slice(0, slash);
+  const prefix = Number(value.slice(slash + 1));
+  const version = isIP(address);
+  return (
+    version > 0 &&
+    Number.isInteger(prefix) &&
+    prefix >= 0 &&
+    prefix <= (version === 4 ? 32 : 128)
+  );
+}, 'Must be an IP address, CIDR range, loopback, linklocal or uniquelocal');
 
 export const databaseEnvironmentSchema = z.object({
   NODE_ENV: z
@@ -52,6 +75,30 @@ export const environmentSchema = databaseEnvironmentSchema
       .string()
       .transform((value) => value.split(',').map((origin) => origin.trim()))
       .pipe(z.array(originSchema).min(1)),
+    // Rate limiting. TTLs are milliseconds (@nestjs/throttler convention).
+    RATE_LIMIT_GLOBAL_LIMIT: integerEnv(1, 100_000, '100'),
+    RATE_LIMIT_GLOBAL_TTL_MS: integerEnv(1_000, 3_600_000, '60000'),
+    RATE_LIMIT_AUTH_LIMIT: integerEnv(1, 10_000, '5'),
+    RATE_LIMIT_AUTH_TTL_MS: integerEnv(1_000, 3_600_000, '60000'),
+    RATE_LIMIT_AUTH_BLOCK_MS: integerEnv(1_000, 3_600_000, '300000'),
+    RATE_LIMIT_ACCOUNT_LIMIT: integerEnv(1, 10_000, '3'),
+    RATE_LIMIT_ACCOUNT_TTL_MS: integerEnv(1_000, 3_600_000, '60000'),
+    // `false` (default) ignores forwarding headers; otherwise an explicit
+    // Express trust-proxy value: hop count or comma-separated IPs/CIDRs.
+    TRUST_PROXY: z
+      .union([
+        z.literal('false'),
+        z
+          .string()
+          .regex(/^\d+$/, 'Must be a proxy hop count')
+          .pipe(z.coerce.number<string>().int().min(1).max(10)),
+        z
+          .string()
+          .transform((value) => value.split(',').map((entry) => entry.trim()))
+          .pipe(z.array(proxyEntrySchema).min(1)),
+      ])
+      .default('false'),
+    REQUEST_BODY_LIMIT_BYTES: integerEnv(1_024, 1_048_576, '16384'),
   })
   .superRefine((environment, context) => {
     if (

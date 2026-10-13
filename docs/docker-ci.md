@@ -16,15 +16,20 @@ The API is available at `http://localhost:3000/api/v1`. The default stack runs c
 
 Compose starts PostgreSQL 17, waits for its `pg_isready` health check, then starts the API. The API's container health check uses the existing `/api/v1` endpoint; it proves HTTP availability, not database readiness. Dedicated readiness endpoints remain a later milestone.
 
-| Setting                | Local Compose behavior                                                  |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `POSTGRES_USER`        | Database role, defaults to `app`                                        |
-| `POSTGRES_DB`          | Database name, defaults to `app`                                        |
-| `POSTGRES_PASSWORD`    | Required, with an illustrative development-only value in `.env.example` |
-| `API_PORT`             | Host port, defaults to 3000, bound to `127.0.0.1`                       |
-| `SWAGGER_ENABLED`      | Defaults to `false` in Compose                                          |
-| `AUTH_SIGNING_KEY`     | Required random signing key; passed only to the API                     |
-| `AUTH_TRUSTED_ORIGINS` | Required exact HTTPS origins (Compose runs production mode)             |
+| Setting                    | Local Compose behavior                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_USER`            | Database role, defaults to `app`                                                                              |
+| `POSTGRES_DB`              | Database name, defaults to `app`                                                                              |
+| `POSTGRES_PASSWORD`        | Required, with an illustrative development-only value in `.env.example`                                       |
+| `API_PORT`                 | Host port, defaults to 3000, bound to `127.0.0.1`                                                             |
+| `SWAGGER_ENABLED`          | Defaults to `false` in Compose                                                                                |
+| `AUTH_SIGNING_KEY`         | Required random signing key; passed only to the API                                                           |
+| `AUTH_TRUSTED_ORIGINS`     | Required exact HTTPS origins (Compose runs production mode)                                                   |
+| `RATE_LIMIT_*`             | Optional; Compose defaults match the validated app defaults (100/60s global, 5/60s auth, 3/60s account)       |
+| `TRUST_PROXY`              | Optional; defaults `false`. Set hop count or proxy IPs only behind a known proxy that alone can reach the API |
+| `REQUEST_BODY_LIMIT_BYTES` | Optional; defaults to 16384 (16 KiB JSON/form cap, 413 beyond)                                                |
+
+See [security](security.md) for rate-limit, proxy-trust and multi-instance details. Behind a TLS-terminating proxy, set `TRUST_PROXY` to that proxy and restrict network ingress so clients cannot reach the API directly.
 
 The API and migration service construct an internal URL using the hostname `postgres`. Host-side `DATABASE_URL`, `PORT` and `NODE_ENV` from `.env` do not override the container URL, internal port 3000 or production mode. PostgreSQL is accessible only on the Compose network, not a published host port. Use `docker compose exec postgres psql -U app -d app` to inspect the default local database.
 

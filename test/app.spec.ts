@@ -17,7 +17,7 @@ describe('Application HTTP conventions', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleRef.createNestApplication({ logger: false });
+    app = moduleRef.createNestApplication({ logger: false, bodyParser: false });
     configureApplication(app);
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
@@ -276,7 +276,10 @@ describe('Swagger exposure', () => {
         .overrideProvider(ConfigService)
         .useValue(config)
         .compile();
-      const app = moduleRef.createNestApplication({ logger: false });
+      const app = moduleRef.createNestApplication({
+        logger: false,
+        bodyParser: false,
+      });
       try {
         configureApplication(app);
         await app.listen(0, '127.0.0.1');

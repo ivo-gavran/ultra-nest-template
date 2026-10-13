@@ -23,6 +23,10 @@ Then set the exact frontend/API origins for your deployment. Production requires
 
 Access JWTs have a **15-minute** lifetime and `typ=at+jwt`. Opaque refresh tokens have a **7-day TTL and 7-day absolute family lifetime**. These explicit defaults live in `auth.options.ts`; rotation never extends the family deadline. Password costs and normalization remain as documented in [users persistence](users.md).
 
+## Rate limiting (PR-10)
+
+Auth endpoints are throttled before any credential or scrypt work: 5 requests per 60 s per tracker (then a 5-minute block), where register/login track `clientIP:sha256(normalizedEmail)` and refresh/logout use the client IP. Session administration tracks the authenticated user (IP fallback). Nonexistent-account logins consume the same bucket and return the same generic 401 until limited. A global 100/60 s per-IP limit also applies. Limits are in-memory per process; see [security](security.md) for configuration (`RATE_LIMIT_*`, `TRUST_PROXY`, `REQUEST_BODY_LIMIT_BYTES`), proxy requirements and multi-instance storage.
+
 ## HTTP and browser contract
 
 | Endpoint                     | Success | Input                                      |
@@ -108,7 +112,7 @@ Account deletion writes all owned family tombstones before hard-deleting the use
 
 Keep spent tokens and tombstones through the absolute family deadline so replay detection remains effective. A failed/interrupted rotation can leave an unreturned successor; do not infer delivery from an unspent row. There is no automatic cleanup during startup or refresh and no scheduler in core. Operators should run a reviewed, bounded maintenance job outside request handling; a conservative policy is to retain known families until **7 days after** their deadline, then remove those families (cascading tokens) and only their corresponding tombstones in a transaction. Select a limited batch of known family IDs, lock rows consistently with the user-first order, and delete tombstones only for that batch. Never age out an unknown-family tombstone by timestamp alone: its safe expiry bound is unknown. **Account-deletion tombstones are retained indefinitely**, since cascades remove their family's deadline; changing this requires an explicit safe operator retention policy.
 
-Without that maintenance process, auth tables grow. Monitor volume and clock synchronization; budget scrypt memory/threadpool capacity. General rate limiting, abuse controls and security hardening remain PR-10. The starter is not yet the final public-production release. Registration's user insert and token issue are separate operations: if token storage fails after user creation, the user remains persisted and can retry via login. No misleading rollback or success is reported.
+Without that maintenance process, auth tables grow. Monitor volume and clock synchronization; budget scrypt memory/threadpool capacity. General rate limiting and abuse controls landed in PR-10 (see [security](security.md)); the starter is not yet the final public-production release. Registration's user insert and token issue are separate operations: if token storage fails after user creation, the user remains persisted and can retry via login. No misleading rollback or success is reported.
 
 ## Tests
 

@@ -5,6 +5,9 @@ cd "$(dirname "$0")/.."
 # Never touch the developer's Compose project, .env, credentials or volume.
 project="nest-smoke-$(date +%s)-$$"
 export POSTGRES_USER=smoke POSTGRES_DB=smoke API_PORT=0 SWAGGER_ENABLED=false
+# Smoke flows make many sequential auth calls from one client; production
+# defaults (5/60s auth) would throttle them. Raise limits for smoke only.
+export RATE_LIMIT_AUTH_LIMIT=1000 RATE_LIMIT_GLOBAL_LIMIT=10000 RATE_LIMIT_ACCOUNT_LIMIT=1000
 POSTGRES_PASSWORD="$(node -e 'console.log(require("node:crypto").randomUUID())')"
 export POSTGRES_PASSWORD
 AUTH_SIGNING_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
@@ -133,6 +136,22 @@ for (const flag of ['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/']) assert.ok(d
 assert.equal((await request('users/me', 'GET', accessToken)).status, 401);
 assert.equal((await request('auth/refresh', 'POST', '', {}, nextCookie)).status, 401);
 console.log('Production container users, password change, session revocation and account deletion passed.');
+JS
+
+API_URL="http://$address" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const base = process.env.API_URL;
+// Security hardening smoke: rate-limit headers, 413 body cap, spoof resistance.
+const root = await fetch(`${base}/api/v1`);
+assert.equal(root.status, 200);
+assert.equal(root.headers.get('x-ratelimit-limit-global'), '10000');
+assert.equal(root.headers.get('x-content-type-options'), 'nosniff');
+const big = await fetch(`${base}/api/v1/auth/login`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', Origin: process.env.AUTH_TRUSTED_ORIGINS },
+  body: JSON.stringify({ email: 'big@example.test', password: 'x'.repeat(20000) }),
+});
+assert.equal(big.status, 413);
+console.log('Production container rate-limit headers and body cap passed.');
 JS
 test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
 test "$(psql 'select count(*) > 0 from auth_revoked_families r left join auth_token_families f using (family_id) where f.family_id is null;')" = t

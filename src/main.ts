@@ -5,7 +5,7 @@ import { AppModule } from './app.module.js';
 import { configureApplication } from './configure-application.js';
 import type { Environment } from './config/environment.js';
 
-const app = await NestFactory.create(AppModule);
+const app = await NestFactory.create(AppModule, { bodyParser: false });
 configureApplication(app);
 app.enableShutdownHooks();
 const config = app.get(ConfigService<Environment, true>);

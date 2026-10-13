@@ -26,7 +26,9 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { UsersPolicy } from '../authorization/policies/users.policy.js';
+import { authenticatedActorTracker } from '../security/throttle-trackers.js';
 import { BrowserOriginGuard } from '../auth/browser-origin.guard.js';
 import { cookieName, cookieOptions } from '../auth/refresh-cookie.js';
 import { emptyAuthSchema } from '../auth/schemas/auth.schema.js';
@@ -72,7 +74,7 @@ import { UsersService } from './users.service.js';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  // Literal self routes precede the administrative UUID routes.
+  // Read-only routes use only the global limiter.
   @Get('me')
   @Can(UsersPolicy, 'readSelf')
   @ApiOperation({ summary: 'Read your public profile' })
@@ -83,6 +85,7 @@ export class UsersController {
 
   @Patch('me')
   @Can(UsersPolicy, 'updateSelf')
+  @SkipThrottle({ account: true })
   @UseGuards(BrowserOriginGuard)
   @ApiOperation({
     summary: 'Update your email or display name',
@@ -99,6 +102,7 @@ export class UsersController {
 
   @Patch('me/password')
   @Can(UsersPolicy, 'changeOwnPassword')
+  @Throttle({ account: { getTracker: authenticatedActorTracker } })
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({
@@ -117,6 +121,7 @@ export class UsersController {
 
   @Delete('me')
   @Can(UsersPolicy, 'deleteSelf')
+  @SkipThrottle({ account: true })
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({
@@ -156,6 +161,7 @@ export class UsersController {
 
   @Patch(':id')
   @Can(UsersPolicy, 'manage')
+  @Throttle({ account: { getTracker: authenticatedActorTracker } })
   @UseGuards(BrowserOriginGuard)
   @ApiOperation({
     summary: 'Update a user (administrator)',
@@ -173,6 +179,7 @@ export class UsersController {
 
   @Delete(':id')
   @Can(UsersPolicy, 'manage')
+  @Throttle({ account: { getTracker: authenticatedActorTracker } })
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({
