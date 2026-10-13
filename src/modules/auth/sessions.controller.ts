@@ -11,9 +11,13 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { Can } from '@nestjs/authorization';
+import { SessionsPolicy } from '../authorization/policies/sessions.policy.js';
 import { CurrentSession, CurrentUser } from '@nestjs/authentication';
 import {
   ApiBearerAuth,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
@@ -37,10 +41,17 @@ import { SessionsService } from './sessions.service.js';
 @Controller('auth')
 @ApiTags('Authentication sessions')
 @ApiBearerAuth()
+@ApiUnauthorizedResponse({
+  description: 'Valid bearer authentication required',
+})
+@ApiForbiddenResponse({
+  description: 'Insufficient permission or untrusted Origin',
+})
 export class SessionsController {
   constructor(private readonly sessions: SessionsService) {}
 
   @Get('sessions')
+  @Can(SessionsPolicy, 'listOwn')
   @ApiOperation({
     summary: 'List own refresh-token families, newest first',
     description:
@@ -56,6 +67,7 @@ export class SessionsController {
   }
 
   @Delete('sessions/:id')
+  @Can(SessionsPolicy, 'revokeOwn')
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({
@@ -75,6 +87,7 @@ export class SessionsController {
   }
 
   @Post('logout-all')
+  @Can(SessionsPolicy, 'logoutAll')
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({

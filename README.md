@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-07: authentication session administration**. The application exposes the original public starter routes and browser authentication and bearer-protected session administration under `/api/v1/auth`. Environment configuration is validated before the HTTP server starts. Users CRUD endpoints and authorization policies remain later milestones.
+A modular NestJS REST starter, currently at **PR-08: authorization, role permissions and resource ownership**. The application exposes the original public starter routes and browser authentication and bearer-protected session administration under `/api/v1/auth`. Environment configuration is validated before the HTTP server starts. Users CRUD endpoints remain PR-09. Authorization now denies undeclared routes by default.
 
 ## Requirements and installation
 
@@ -130,6 +130,12 @@ Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds
 Run `pnpm db:migrate` to add the auth tables before using these endpoints. The global authentication guard protects new routes by default and reloads the current user from PostgreSQL. The original starter routes remain intentionally public. PostgreSQL enforces one-time consumption and durable family revocation, including concurrent refresh/logout-all storage races. Access JWTs can remain usable until expiry after refresh revocation.
 
 Use same-site HTTPS frontend/API deployments and `credentials: 'include'`. Cookie security is never disabled for local convenience. See [authentication configuration, browser behavior and lifecycle](docs/authentication.md) for exact schemas, origins, local HTTPS/localhost considerations, storage retention, operational limitations and tests.
+
+## Authorization
+
+The official `@nestjs/authorization@0.1.0` global guard runs after authentication. Protected routes declare typed `@Can()` policies; a missing declaration denies access, including for administrators. Public starter/auth routes retain `@Public()`. Roles come from the database-loaded current user on each request, so changing a role affects the next request without replacing the JWT.
+
+Users and admins can list/revoke their own sessions and logout all their own devices. Existing SQL owner predicates remain authoritative; admins do not gain access to another user's sessions. Administrative user permissions are tested through fixtures only; no PR-09 endpoints are exposed. See [policy conventions and endpoint guidance](docs/authorization.md) and [PR-08 verification](docs/pr-08-verification.md).
 
 ## Docker and CI
 

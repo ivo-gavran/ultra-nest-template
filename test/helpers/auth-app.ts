@@ -1,11 +1,13 @@
 import 'reflect-metadata';
 import { Controller, Get } from '@nestjs/common';
-import type { LoggerService } from '@nestjs/common';
+import type { LoggerService, Type } from '@nestjs/common';
 import {
   AUTHENTICATION_MODULE_OPTIONS,
   CurrentUser,
   PasswordHasher,
 } from '@nestjs/authentication';
+import { Can } from '@nestjs/authorization';
+import { UsersPolicy } from '../../src/modules/authorization/policies/users.policy.js';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module.js';
@@ -19,6 +21,7 @@ import { authEnvironment } from './auth-environment.js';
 @Controller('auth-test-protected')
 class ProtectedController {
   @Get()
+  @Can(UsersPolicy, 'readSelf')
   get(@CurrentUser() user: PublicUser) {
     return { id: user.id, role: user.role };
   }
@@ -29,6 +32,7 @@ export async function createAuthApp(
   now = () => Date.now(),
   logger: false | LoggerService = false,
   origins = authEnvironment.AUTH_TRUSTED_ORIGINS,
+  controllers: Type<unknown>[] = [],
 ) {
   const config = new ConfigService<Environment, true>(
     environmentSchema.parse({
@@ -41,7 +45,7 @@ export async function createAuthApp(
   const options = authenticationOptions(config);
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
-    controllers: [ProtectedController],
+    controllers: [ProtectedController, ...controllers],
   })
     .overrideProvider(ConfigService)
     .useValue(config)
