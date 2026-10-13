@@ -118,8 +118,11 @@ describe('Application HTTP conventions', () => {
     const sessions = document.paths['/api/v1/auth/sessions'].get!;
     const revoke = document.paths['/api/v1/auth/sessions/{id}'].delete!;
     const logoutAll = document.paths['/api/v1/auth/logout-all'].post!;
-    for (const endpoint of [sessions, revoke, logoutAll])
+    for (const endpoint of [sessions, revoke, logoutAll]) {
       expect(endpoint.security).toEqual([{ bearer: [] }]);
+      expect(endpoint.responses).toHaveProperty('401');
+      expect(endpoint.responses).toHaveProperty('403');
+    }
     expect(sessions.parameters).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
