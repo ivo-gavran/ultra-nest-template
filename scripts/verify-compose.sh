@@ -21,6 +21,7 @@ psql() {
 
 compose up --build --detach --wait --wait-timeout 120
 api_id="$(compose ps -q api)"
+api_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$api_id")"
 postgres_id="$(compose ps -q postgres)"
 address="$(compose port api 3000)"
 
@@ -204,14 +205,16 @@ compose start postgres
 # Compose --wait rejects an already-unhealthy container immediately. Wait for
 # Docker to record the next successful probe before asserting the stack.
 wait_for_health healthy
-compose up --detach --wait --wait-timeout 120
+# Do not reconcile the stack with `up` here: some Compose versions recreate
+# containers after the migration image build, invalidating this recovery test.
 test "$(compose ps -q api)" = "$api_id"
+test "$(docker inspect --format '{{.State.StartedAt}}' "$api_id")" = "$api_started_at"
 healthcheck
 echo 'Readiness HEALTHCHECK fails on outage and recovers; liveness stays healthy without an API restart.'
 
 # Restart and then recreate containers; both must retain the named volume.
 compose restart postgres
-compose up --detach --wait --wait-timeout 120
+compose up --detach --no-recreate --wait --wait-timeout 120
 test "$(psql "select count(*) from example_records where label = 'persistence-smoke';")" = 1
 
 test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
@@ -229,7 +232,7 @@ import { execFileSync } from 'node:child_process';
 const code = execFileSync('docker', ['wait', process.env.API_ID], { encoding: 'utf8', timeout: 30000 }).trim();
 assert.ok(['0', '130'].includes(code), `Unexpected SIGINT exit: ${code}`);
 JS
-compose up --detach --wait --wait-timeout 120
+compose up --detach --no-recreate --wait --wait-timeout 120
 address="$(compose port api 3000)"
 
 # The normal Compose stop path sends SIGTERM and retains its 30s outer limit.
