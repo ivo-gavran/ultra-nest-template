@@ -1,6 +1,6 @@
 # Authentication
 
-PR-06 uses `@nestjs/authentication@0.1.1` through its public `AuthenticationModule`, `TokenService`, `JwtBearerProvider`, `AuthenticationStorage` and `RefreshTokenStore` APIs. The existing package-backed `PasswordsService` handles scrypt. There is no custom JWT implementation, session-cookie provider or in-memory production store.
+The application uses `@nestjs/authentication@0.1.1` through its public `AuthenticationModule`, `TokenService`, `JwtBearerProvider`, `AuthenticationStorage` and `RefreshTokenStore` APIs. The existing package-backed `PasswordsService` handles scrypt. There is no custom JWT implementation, session-cookie provider or in-memory production store.
 
 ## Configuration and startup
 
@@ -32,7 +32,7 @@ Access JWTs have a **15-minute** lifetime and `typ=at+jwt`. Opaque refresh token
 | `POST /api/v1/auth/refresh`  | 200     | Empty body or `{}`; refresh cookie only    |
 | `POST /api/v1/auth/logout`   | 204     | Empty body or `{}`; refresh cookie only    |
 
-Every endpoint requires an explicit allowed `Origin`, including same-origin browser requests. Missing, `null`, foreign or lookalike origins receive 403. Native Nest CSRF protection and security headers run before handlers; CORS uses the same exact allowlist with credentials enabled. An allowed preflight does not replace the mutation's Origin check. The current CORS methods cover GET/POST/OPTIONS; later milestones must deliberately extend them when adding other HTTP verbs.
+Every cookie-mutating endpoint requires an explicit allowed `Origin`, including same-origin browser requests. The bearer-only session listing does not require an Origin. Missing, `null`, foreign or lookalike origins receive 403. Native Nest CSRF protection and security headers run before handlers; CORS uses the same exact allowlist with credentials enabled. An allowed preflight does not replace the mutation's Origin check. CORS allows GET/POST/DELETE/OPTIONS.
 
 Registration always creates a `user`. Login uses the dedicated internal credentials projection and performs package verification even when the account is absent. Wrong/unknown credentials produce the same generic 401. Strict schemas reject client-supplied roles, hashes, session IDs and tokens. Duplicate registration returns a generic 409; like other registration conflict responses, this can reveal email availability. If account-enumeration resistance is required, redesign the registration UX in a later account lifecycle milestone.
 
@@ -67,6 +67,36 @@ The package saves a successor before conditionally consuming its parent. Exactly
 Revocation persists across application/pool restarts. Deleting a user cascades families/tokens; tombstones remain. Refresh checks the account before rotation, and the store checks its existence under the user lock before writing. The response boundary also checks it again. Storage outages produce safe errors; they are not converted to successful refresh/logout.
 
 Already-issued access JWTs can remain valid until expiry, including a token issued concurrently with logout/replay. Current-user lookup rejects deleted accounts, but the bearer provider does not consult family tombstones for each JWT. Immediate per-session JWT revocation is outside this milestone.
+
+## Session administration
+
+These endpoints require a valid bearer access JWT and use the same PostgreSQL refresh families. They do not use the package's separate cookie-session `SessionService` or introduce another store.
+
+| Endpoint                           | Input                                                            | Success                     |
+| ---------------------------------- | ---------------------------------------------------------------- | --------------------------- |
+| `GET /api/v1/auth/sessions`        | Strict query: `limit` (1–100, default 20), optional `after` UUID | 200 `{ items, nextCursor }` |
+| `DELETE /api/v1/auth/sessions/:id` | Strict UUID route parameter; trusted Origin                      | 204, empty body             |
+| `POST /api/v1/auth/logout-all`     | Empty body or strict `{}`; trusted Origin                        | 204, empty body             |
+
+Each item contains only `id` (public UUID), `createdAt`, `expiresAt` (absolute family deadline), `status` and `current`. Dates are ISO UTC strings. Never put access/refresh tokens into query strings or URLs. The list is ordered by creation time descending, then UUID descending. Pass `nextCursor` as `after` for the next page; null means the last page. The owner-scoped keyset uses stored timestamps without client-side rounding and a single query with a correlated existence check, avoiding N+1 queries. A newer login does not shift subsequent pages. Pages are live views, not a database snapshot; status can change between calls. A foreign, unknown or maintenance-deleted cursor returns an empty page; restart pagination after cleanup removes its anchor.
+
+Status precedence:
+
+- `revoked`: a durable family tombstone exists, even if the family has also expired.
+- `active`: no tombstone, a future family deadline and at least one unspent, unexpired refresh token.
+- `expired`: neither of the above, including an empty family or one containing only spent/expired tokens. This is refresh usability, not proof a token was delivered to a browser; an interrupted rotation may leave an unreturned successor.
+
+Status uses PostgreSQL's statement transaction time. Keep database/application clocks synchronized. `expiresAt` reports the family ceiling, not a guarantee that the family is active until then.
+
+The public `@CurrentSession()` decorator exposes the authenticated provider's session object. In the pinned `JwtBearerProvider`, this is the verified JWT claim set; `@CurrentUser()` supplies the current database user. We validate the server-generated `sid` UUID from that context, never decode unverified claims or accept client identity. Rotation preserves `sid`. A supported signed token without `sid` has no current row; it does not gain an inferred identity from cookies or input. Here “current” means the bearer token's login, which can differ from a browser cookie after another tab logs in. Browsers should keep access and refresh credentials in sync.
+
+Targeted revocation uses one `INSERT … SELECT … WHERE user_id = authenticated_user AND session_id = requested_id ON CONFLICT DO NOTHING`. Ownership and tombstone insertion are atomic; refresh rows and replay evidence remain intact. Unknown, foreign and already-revoked UUIDs return the same 204. The cookie is cleared when the requested UUID matches the verified current sid, including repeat revocation. Other-device revocation leaves the browser cookie alone. The safe `auth.session.revoked` audit event is emitted only after a new tombstone was inserted; it deliberately includes no actor/session IDs, PII, claims or credentials. This minimal event does not provide identity-level audit attribution.
+
+Logout-all delegates to public `TokenService.revokeAll(authenticatedUser.id)` and clears the refresh cookie. It preserves the user-row lock ordering described above: a new login ordered after logout-all can survive, while any successor of an earlier family stays revoked. Targeted revocation also covers successors saved before or after the tombstone. A concurrent refresh may already have returned an access JWT when revocation commits. **Existing access JWTs, including those used for session administration, can remain valid for up to 15 minutes.** Deleted accounts are rejected on the next bearer lookup. Logout-all is not an account lockout.
+
+All session responses, including authentication, validation, CSRF and storage errors, use `Cache-Control: no-store`. The mutations keep native CSRF checks and exact trusted-Origin enforcement. Cookie deletion uses the same HttpOnly/Secure/SameSite=Lax/Path=/ scope with no Domain. Database failures return a generic 503 without clearing a retryable cookie or logging SQL parameters. No schema migration or new environment setting is required for PR-07. Existing same-site browser and retention limitations still apply.
+
+Evidence: public declarations `decorators/current-session.decorator.d.ts` and `jwt/jwt-bearer.provider.d.ts` in installed `@nestjs/authentication@0.1.1`, checked against the [official authentication guide](https://docs.nestjs.com/security/authentication). See [PR-07 verification](pr-07-verification.md) for HTTP, database and concurrency results.
 
 ## Retention and operational limits
 

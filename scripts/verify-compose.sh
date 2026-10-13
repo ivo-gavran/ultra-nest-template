@@ -70,7 +70,26 @@ assert.equal(rotated.status, 200);
 const next = rotated.headers.get('set-cookie').split(';')[0];
 assert.equal((await post('logout', {}, next)).status, 204);
 assert.equal((await post('refresh', {}, next)).status, 401);
-console.log('Production container registration, login, rotation and logout passed.');
+const login = await post('login', input);
+const { accessToken } = await login.json();
+const headers = { Authorization: `Bearer ${accessToken}`, Origin: process.env.AUTH_TRUSTED_ORIGINS };
+const listing = await fetch(`${base}/sessions?limit=2`, { headers });
+assert.equal(listing.status, 200);
+assert.equal(listing.headers.get('cache-control'), 'no-store');
+const { items } = await listing.json();
+const current = items.find(item => item.current);
+assert.ok(current);
+assert.equal(current.status, 'active');
+const revoked = await fetch(`${base}/sessions/${current.id}`, { method: 'DELETE', headers });
+assert.equal(revoked.status, 204);
+assert.match(revoked.headers.get('set-cookie'), /HttpOnly/);
+assert.match(revoked.headers.get('set-cookie'), /Secure/);
+assert.equal((await post('refresh', {}, login.headers.get('set-cookie').split(';')[0])).status, 401);
+const all = await fetch(`${base}/logout-all`, { method: 'POST', headers });
+assert.equal(all.status, 204);
+const final = await (await fetch(`${base}/sessions`, { headers })).json();
+assert.ok(final.items.every(item => item.status === 'revoked'));
+console.log('Production container auth, session listing, targeted revoke and logout-all passed.');
 JS
 
 # Restart and then recreate containers; both must retain the named volume.

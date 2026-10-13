@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-06: JWT authentication and PostgreSQL refresh storage**. The application exposes the original public starter routes and browser register/login/refresh/logout endpoints under `/api/v1/auth`. Environment configuration is validated before the HTTP server starts. Users CRUD endpoints and authorization policies remain later milestones.
+A modular NestJS REST starter, currently at **PR-07: authentication session administration**. The application exposes the original public starter routes and browser authentication and bearer-protected session administration under `/api/v1/auth`. Environment configuration is validated before the HTTP server starts. Users CRUD endpoints and authorization policies remain later milestones.
 
 ## Requirements and installation
 
@@ -124,6 +124,8 @@ Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds
 ## Authentication
 
 `POST /api/v1/auth/register` returns 201; `/login` and `/refresh` return 200 with only `{ accessToken, expiresIn }`; `/logout` returns 204. Auth mutations require an explicit trusted `Origin`. Keep the 15-minute access JWT in browser memory and send it as a bearer token. The rotating opaque refresh token lives only in the `__Host-refresh` HttpOnly/Secure/Lax cookie, with a seven-day absolute family limit.
+
+`GET /api/v1/auth/sessions?limit=20&after=<nextCursor>` lists only the authenticated user's login families. `DELETE /api/v1/auth/sessions/:id` revokes one owned session; `POST /api/v1/auth/logout-all` revokes all existing devices. Both mutations return 204 and require a trusted Origin plus bearer authentication. Listing uses public UUIDs, timestamps, active/expired/revoked status and a current flag from verified JWT context. New logins after logout-all are allowed; issued access JWTs may still work for up to 15 minutes. See [session administration](docs/authentication.md#session-administration) and [PR-07 verification](docs/pr-07-verification.md).
 
 Run `pnpm db:migrate` to add the auth tables before using these endpoints. The global authentication guard protects new routes by default and reloads the current user from PostgreSQL. The original starter routes remain intentionally public. PostgreSQL enforces one-time consumption and durable family revocation, including concurrent refresh/logout-all storage races. Access JWTs can remain usable until expiry after refresh revocation.
 
