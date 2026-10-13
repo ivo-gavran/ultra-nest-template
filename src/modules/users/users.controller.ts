@@ -27,6 +27,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { UsersPolicy } from '../authorization/policies/users.policy.js';
+import { RateLimit } from '../security/rate-limit.policy.js';
 import { BrowserOriginGuard } from '../auth/browser-origin.guard.js';
 import { cookieName, cookieOptions } from '../auth/refresh-cookie.js';
 import { emptyAuthSchema } from '../auth/schemas/auth.schema.js';
@@ -72,7 +73,6 @@ import { UsersService } from './users.service.js';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  // Literal self routes precede the administrative UUID routes.
   @Get('me')
   @Can(UsersPolicy, 'readSelf')
   @ApiOperation({ summary: 'Read your public profile' })
@@ -99,6 +99,7 @@ export class UsersController {
 
   @Patch('me/password')
   @Can(UsersPolicy, 'changeOwnPassword')
+  @RateLimit('account')
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({
@@ -156,6 +157,7 @@ export class UsersController {
 
   @Patch(':id')
   @Can(UsersPolicy, 'manage')
+  @RateLimit('account')
   @UseGuards(BrowserOriginGuard)
   @ApiOperation({
     summary: 'Update a user (administrator)',
@@ -173,6 +175,7 @@ export class UsersController {
 
   @Delete(':id')
   @Can(UsersPolicy, 'manage')
+  @RateLimit('account')
   @UseGuards(BrowserOriginGuard)
   @HttpCode(204)
   @ApiOperation({

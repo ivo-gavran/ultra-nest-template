@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { DatabaseModule } from './database/database.module.js';
+import { SecurityModule } from './modules/security/security.module.js';
 import { environmentSchema } from './config/environment.js';
 
 @Module({
@@ -16,6 +17,8 @@ import { environmentSchema } from './config/environment.js';
       skipProcessEnv: true,
     }),
     DatabaseModule,
+    // Throttler APP_GUARD is registered before the authentication guard.
+    SecurityModule,
     UsersModule,
     // AuthenticationModule is scanned before the global authorization guard.
     AuthModule,

@@ -59,6 +59,15 @@ describe('Environment schema', () => {
       PORT: 3000,
       DATABASE_URL: databaseUrl,
       SWAGGER_ENABLED: true,
+      RATE_LIMIT_GLOBAL_LIMIT: 100,
+      RATE_LIMIT_GLOBAL_TTL_MS: 60000,
+      RATE_LIMIT_AUTH_LIMIT: 5,
+      RATE_LIMIT_AUTH_TTL_MS: 60000,
+      RATE_LIMIT_AUTH_BLOCK_MS: 300000,
+      RATE_LIMIT_ACCOUNT_LIMIT: 3,
+      RATE_LIMIT_ACCOUNT_TTL_MS: 60000,
+      TRUST_PROXY: 'false',
+      REQUEST_BODY_LIMIT_BYTES: 16384,
     });
   });
 
@@ -124,5 +133,60 @@ describe('Environment schema', () => {
         NODE_ENV: 'production',
       }).SWAGGER_ENABLED,
     ).toBe(false);
+  });
+
+  it.each([
+    { TRUST_PROXY: 'true' },
+    { TRUST_PROXY: '0' },
+    { TRUST_PROXY: '11' },
+    { TRUST_PROXY: 'garbage' },
+    { TRUST_PROXY: '999.1.1.1' },
+    { TRUST_PROXY: '10.0.0.0/33' },
+    { TRUST_PROXY: '10.0.0.0/' },
+    { TRUST_PROXY: '10.0.0.0/0' },
+    { TRUST_PROXY: '0.0.0.0/0' },
+    { TRUST_PROXY: '::/0' },
+    { TRUST_PROXY: '2001:db8::/0' },
+    { TRUST_PROXY: '::/' },
+    { TRUST_PROXY: '::/129' },
+    { TRUST_PROXY: '10.0.0.0/+1' },
+    { TRUST_PROXY: '10.0.0.0/1.5' },
+    { TRUST_PROXY: '10.0.0.0/ 8' },
+    { TRUST_PROXY: '10.0.0.0/00' },
+    { TRUST_PROXY: '10.0.0.0/-1' },
+    { TRUST_PROXY: '10.0.0.0/abc' },
+    { TRUST_PROXY: '' },
+    { RATE_LIMIT_GLOBAL_LIMIT: '0' },
+    { RATE_LIMIT_AUTH_LIMIT: '0' },
+    { RATE_LIMIT_ACCOUNT_LIMIT: '0' },
+    { RATE_LIMIT_GLOBAL_TTL_MS: '999' },
+    { REQUEST_BODY_LIMIT_BYTES: '1023' },
+    { REQUEST_BODY_LIMIT_BYTES: '1048577' },
+    { REQUEST_BODY_LIMIT_BYTES: 'abc' },
+  ])('rejects invalid security configuration: %j', (invalid) => {
+    expect(
+      environmentSchema.safeParse({
+        ...authEnvironment,
+        DATABASE_URL: databaseUrl,
+        ...invalid,
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ['false', 'false'],
+    ['1', 1],
+    ['10', 10],
+    ['loopback', ['loopback']],
+    ['127.0.0.1,10.0.0.0/8', ['127.0.0.1', '10.0.0.0/8']],
+    ['::1/128', ['::1/128']],
+  ] as const)('parses TRUST_PROXY=%s', (value, expected) => {
+    expect(
+      environmentSchema.parse({
+        ...authEnvironment,
+        DATABASE_URL: databaseUrl,
+        TRUST_PROXY: value,
+      }).TRUST_PROXY,
+    ).toEqual(expected);
   });
 });

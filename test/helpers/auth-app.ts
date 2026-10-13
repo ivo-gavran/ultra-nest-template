@@ -33,10 +33,17 @@ export async function createAuthApp(
   logger: false | LoggerService = false,
   origins = authEnvironment.AUTH_TRUSTED_ORIGINS,
   controllers: Type<unknown>[] = [],
+  env: Record<string, string> = {},
 ) {
   const config = new ConfigService<Environment, true>(
     environmentSchema.parse({
       ...authEnvironment,
+      // Test apps default to generous limits so unrelated suites stay
+      // deterministic; security suites pass tight limits via `env`.
+      RATE_LIMIT_GLOBAL_LIMIT: '100000',
+      RATE_LIMIT_AUTH_LIMIT: '10000',
+      RATE_LIMIT_ACCOUNT_LIMIT: '10000',
+      ...env,
       AUTH_TRUSTED_ORIGINS: origins,
       NODE_ENV: 'test',
       DATABASE_URL: databaseUrl,
@@ -58,7 +65,10 @@ export async function createAuthApp(
       refreshToken: { ttl: '7d', absoluteTtl: '7d', now },
     })
     .compile();
-  const app = moduleRef.createNestApplication({ logger });
+  const app = moduleRef.createNestApplication({
+    logger,
+    bodyParser: false,
+  });
   configureApplication(app);
   try {
     await app.listen(0, '127.0.0.1');

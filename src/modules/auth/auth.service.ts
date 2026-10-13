@@ -43,6 +43,9 @@ export class AuthService {
 
   register(input: CreateUserInput) {
     return this.safely(async () => {
+      // Single scrypt hash in UsersService.create; login verifies it once.
+      // The verified hash is carried into token issue by login(), preserving
+      // the PR-09 stale-password precondition without a second hash.
       const user = await this.users.create(input);
       return this.login({ email: user.email, password: input.password });
     });

@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-09: Users API and account lifecycle**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default.
+A modular NestJS REST starter, currently at **PR-10: Security hardening**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
 
 ## Requirements and installation
 
@@ -34,14 +34,17 @@ pnpm start:dev
 
 The Nest CLI compiles TypeScript and restarts on source changes. Configuration loads from `.env` in the current working directory; process environment values take precedence. Restart after changing environment settings. For example, use `PORT=3001 pnpm start:dev` on a POSIX shell.
 
-| Variable               | Accepted values                                    | Default                                 |
-| ---------------------- | -------------------------------------------------- | --------------------------------------- |
-| `NODE_ENV`             | `development`, `test`, `production`                | `development`                           |
-| `PORT`                 | Decimal integer from 1 to 65535                    | `3000`                                  |
-| `DATABASE_URL`         | PostgreSQL URL with host and database              | Required                                |
-| `SWAGGER_ENABLED`      | Literal `true` or `false`                          | `false` in production, otherwise `true` |
-| `AUTH_SIGNING_KEY`     | 64 hex characters encoding 32 random bytes         | Required; no default                    |
-| `AUTH_TRUSTED_ORIGINS` | Comma-separated exact origins; HTTPS in production | Required; no wildcard                   |
+| Variable                   | Accepted values                                    | Default                                 |
+| -------------------------- | -------------------------------------------------- | --------------------------------------- |
+| `NODE_ENV`                 | `development`, `test`, `production`                | `development`                           |
+| `PORT`                     | Decimal integer from 1 to 65535                    | `3000`                                  |
+| `DATABASE_URL`             | PostgreSQL URL with host and database              | Required                                |
+| `SWAGGER_ENABLED`          | Literal `true` or `false`                          | `false` in production, otherwise `true` |
+| `AUTH_SIGNING_KEY`         | 64 hex characters encoding 32 random bytes         | Required; no default                    |
+| `AUTH_TRUSTED_ORIGINS`     | Comma-separated exact origins; HTTPS in production | Required; no wildcard                   |
+| `RATE_LIMIT_*`             | See [security guide](docs/security.md)             | 100/60s global; 5/60s auth; 3/60s acct  |
+| `TRUST_PROXY`              | `false`, hop count 1–10, or IPs/CIDRs/presets      | `false`                                 |
+| `REQUEST_BODY_LIMIT_BYTES` | Integer 1024–1048576                               | `16384`                                 |
 
 Missing `DATABASE_URL`, invalid ports or invalid flags prevent startup. Empty strings are invalid. The API creates a lazy PostgreSQL pool: connections open on the first database query, so startup alone does not verify database availability. Example credentials are for local development only. Keep `.env` untracked and inject production values through the deployment environment.
 
@@ -143,6 +146,10 @@ The official `@nestjs/authorization@0.1.0` global guard runs after authenticatio
 
 Users and admins can manage their own profiles and sessions. Existing SQL owner predicates remain authoritative; admins do not gain access to another user's session-management routes. Administrative user endpoints explicitly require `UsersPolicy.manage`. See [policy conventions and endpoint guidance](docs/authorization.md) and [PR-09 verification](docs/pr-09-verification.md).
 
+## Security hardening
+
+`SecurityModule` registers `@nestjs/throttler` before the authentication guard: 100 requests/60s per IP per handler on all routes, an additional 5/60s (5-minute block) per IP for register/login/refresh/logout, and 3/60s per IP for password changes and admin mutations. Read-only routes, session administration, profile updates and self-deletion receive only the global limiter. Users behind one IP share budgets; submitted emails and bearer identities never change throttle keys. Throttling returns generic 429 responses with `X-RateLimit-*`/`Retry-After-*` headers before any scrypt work. `TRUST_PROXY` (default `false`) strictly validates proxy hops or IP/CIDR allowlists so forwarding headers cannot spoof throttling identity; JSON and URL-encoded bodies are capped at 16 KiB (`REQUEST_BODY_LIMIT_BYTES`) with 413 responses. Native security headers, CSRF, exact-origin credentialed CORS, the `__Host-refresh` cookie and no-store auth/users responses are unchanged. Limits are per-process in memory; multi-instance shared storage is documented, not bundled. See the [security guide](docs/security.md) and [PR-10 verification](docs/pr-10-verification.md).
+
 ## Docker and CI
 
 With Docker and Compose installed:
@@ -189,5 +196,7 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [PR-06 verification results](docs/pr-06-verification.md)
 - [Browser auth transport](docs/adr/001-auth-transport.md)
 - [Bearer session model](docs/adr/002-auth-session-model.md)
+- [Security hardening guide](docs/security.md)
+- [PR-10 verification results](docs/pr-10-verification.md)
 
-Next milestone: **PR-10 general security hardening and rate limiting**. Health and observability remain PR-11/12. Optional extensions remain opt-in.
+Next milestone: **PR-11 health checks and lifecycle**. Observability remains PR-12. Optional extensions remain opt-in.

@@ -4,12 +4,24 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { Environment } from './config/environment.js';
+import {
+  applyBodyLimits,
+  applyTrustProxy,
+} from './modules/security/http-hardening.js';
 
 export function configureApplication(app: INestApplication): void {
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new StandardSchemaValidationPipe());
 
   const config = app.get(ConfigService<Environment, true>);
+  applyTrustProxy(app, {
+    TRUST_PROXY: config.get('TRUST_PROXY', { infer: true }),
+  });
+  applyBodyLimits(app, {
+    REQUEST_BODY_LIMIT_BYTES: config.get('REQUEST_BODY_LIMIT_BYTES', {
+      infer: true,
+    }),
+  });
   const origins = config.get('AUTH_TRUSTED_ORIGINS', { infer: true });
   // Before guards, validation and CSRF so rejected auth requests are not cached.
   const authNoStore: RequestHandler = (request, response, next) => {

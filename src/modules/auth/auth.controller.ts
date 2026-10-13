@@ -18,6 +18,7 @@ import {
 import type { Response } from 'express';
 import { createUserSchema } from '../users/schemas/user.schema.js';
 import type { CreateUserInput } from '../users/schemas/user.schema.js';
+import { RateLimit } from '../security/rate-limit.policy.js';
 import { AuthService } from './auth.service.js';
 import { BrowserOriginGuard } from './browser-origin.guard.js';
 import {
@@ -32,6 +33,8 @@ import { cookieName, cookieOptions } from './refresh-cookie.js';
 @Controller('auth')
 @ApiTags('Authentication')
 @UseGuards(BrowserOriginGuard)
+// In addition to global protection, each auth handler has a strict IP budget.
+@RateLimit('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 

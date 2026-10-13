@@ -40,6 +40,7 @@ import { SessionsService } from './sessions.service.js';
 
 @Controller('auth')
 @ApiTags('Authentication sessions')
+// Session reads/revocations use global IP protection only.
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({
   description: 'Valid bearer authentication required',
