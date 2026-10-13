@@ -206,7 +206,7 @@ compose logs --no-color --no-log-prefix api | node --input-type=module -e '
   for (const leaked of [
     process.env.POSTGRES_PASSWORD, process.env.AUTH_SIGNING_KEY, "smoke password", "original password",
     "replacement password", "@example.test", "Bearer ", "__Host-refresh", "eyJ",
-  ]) assert.equal(input.includes(leaked), false, `Log leak: ${leaked}`);
+  ]) assert.equal(input.includes(leaked), false, "Sensitive value found in logs");
   const completed = records.filter((record) => record.message === "http.request.completed");
   assert.ok(completed.length > 20);
   assert.ok(completed.every((record) => record.service === "ultra-nest-template" && record.requestId && !("traceId" in record)));
@@ -295,7 +295,7 @@ docker logs "$otlp" | node --input-type=module -e '
   assert.ok(requests.some((request) => request.path === "/v1/metrics" && request.body.includes("http.server.request.duration")));
   const bodies = requests.map((request) => request.body).join("\n");
   for (const leaked of [process.env.POSTGRES_PASSWORD, process.env.AUTH_SIGNING_KEY, "otel-smoke@example.test", "otel smoke password", "eyJ", "smoke-collector-token", "drizzle."])
-    assert.equal(bodies.includes(leaked), false, `Telemetry leak: ${leaked}`);
+    assert.equal(bodies.includes(leaked), false, "Sensitive value found in telemetry");
   console.log(`Production image OTLP export passed (${spans.length} spans, ${pg.length} PostgreSQL).`);
 '
 otel_logs="$(docker logs "$otel_api" 2>&1)"

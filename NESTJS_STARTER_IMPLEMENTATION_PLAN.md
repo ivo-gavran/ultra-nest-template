@@ -1,6 +1,6 @@
 # NestJS Starter — Implementation Plan v1.0
 
-**Status:** Architecture agreed; implementation not started  
+**Status:** PR-00–PR-13 implemented as a release candidate; independent final review and explicit release authorization pending
 **Prepared:** 2026-10-12  
 **Goal:** A reusable, production-ready NestJS REST starter with a small, secure default footprint and documented optional extensions.
 
