@@ -108,10 +108,69 @@ describe('Application HTTP conventions', () => {
       '/api/v1',
       '/api/v1/auth/login',
       '/api/v1/auth/logout',
+      '/api/v1/auth/logout-all',
       '/api/v1/auth/refresh',
       '/api/v1/auth/register',
+      '/api/v1/auth/sessions',
+      '/api/v1/auth/sessions/{id}',
       '/api/v1/greetings',
     ]);
+    const sessions = document.paths['/api/v1/auth/sessions'].get!;
+    const revoke = document.paths['/api/v1/auth/sessions/{id}'].delete!;
+    const logoutAll = document.paths['/api/v1/auth/logout-all'].post!;
+    for (const endpoint of [sessions, revoke, logoutAll])
+      expect(endpoint.security).toEqual([{ bearer: [] }]);
+    expect(sessions.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'limit',
+          in: 'query',
+          schema: expect.objectContaining({
+            minimum: 1,
+            maximum: 100,
+            default: 20,
+          }),
+        }),
+        expect.objectContaining({
+          name: 'after',
+          in: 'query',
+          schema: expect.objectContaining({ format: 'uuid' }),
+        }),
+      ]),
+    );
+    expect(revoke.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: expect.objectContaining({ format: 'uuid' }),
+        }),
+      ]),
+    );
+    expect(sessions.responses['200']).toMatchObject({
+      content: {
+        'application/json': {
+          schema: {
+            additionalProperties: false,
+            properties: {
+              items: {
+                items: {
+                  additionalProperties: false,
+                  properties: {
+                    id: { format: 'uuid' },
+                    status: { enum: ['active', 'expired', 'revoked'] },
+                    current: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(revoke.responses).toHaveProperty('204');
+    expect(logoutAll.responses).toHaveProperty('204');
     expect(document.paths['/api/v1/greetings']?.post?.requestBody).toEqual({
       required: true,
       content: {

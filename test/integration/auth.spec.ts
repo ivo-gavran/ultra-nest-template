@@ -393,14 +393,14 @@ describe('Browser authentication with real PostgreSQL', () => {
     expect((await protectedRequest(access.accessToken)).status).toBe(401);
   });
 
-  it('uses the durable store for TokenService.revokeAll without exposing an HTTP administration endpoint', async () => {
+  it('uses the durable store for TokenService.revokeAll and keeps logout-all protected', async () => {
     const first = await post('register', input);
     const second = await post('login', input);
     const [user] = await db.select({ id: users.id }).from(users);
     await app.get(TokenService).revokeAll(user.id);
     expect((await post('refresh', {}, cookie(first))).status).toBe(401);
     expect((await post('refresh', {}, cookie(second))).status).toBe(401);
-    expect((await post('logout-all')).status).toBe(404);
+    expect((await post('logout-all')).status).toBe(401);
   });
 
   it('reports storage failures as 503 without clearing the cookie or claiming logout success', async () => {

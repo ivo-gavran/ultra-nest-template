@@ -15,7 +15,7 @@ import {
   ApiNoContentResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { CookieOptions, Response } from 'express';
+import type { Response } from 'express';
 import { createUserSchema } from '../users/schemas/user.schema.js';
 import type { CreateUserInput } from '../users/schemas/user.schema.js';
 import { AuthService } from './auth.service.js';
@@ -27,13 +27,7 @@ import {
 } from './schemas/auth.schema.js';
 import type { LoginInput, EmptyAuthInput } from './schemas/auth.schema.js';
 
-const cookieName = '__Host-refresh';
-const cookieOptions: CookieOptions = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'lax',
-  path: '/',
-};
+import { cookieName, cookieOptions } from './refresh-cookie.js';
 
 @Controller('auth')
 @ApiTags('Authentication')

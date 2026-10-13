@@ -10,6 +10,10 @@ import { BearerProvider } from './bearer.provider.js';
 import { BrowserOriginGuard } from './browser-origin.guard.js';
 import { PostgresRefreshTokenStore } from './storage/postgres-refresh-token.store.js';
 
+import { SessionsController } from './sessions.controller.js';
+import { SessionsService } from './sessions.service.js';
+import { SessionsRepository } from './sessions.repository.js';
+
 @Module({
   imports: [
     AuthenticationModule.forRootAsync({
@@ -19,9 +23,11 @@ import { PostgresRefreshTokenStore } from './storage/postgres-refresh-token.stor
     DatabaseModule,
     UsersModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SessionsController],
   providers: [
     AuthService,
+    SessionsService,
+    SessionsRepository,
     BearerProvider,
     BrowserOriginGuard,
     PostgresRefreshTokenStore,

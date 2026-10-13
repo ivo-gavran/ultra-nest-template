@@ -24,6 +24,8 @@ Put table definitions in `src/database/schema/`, grouped by feature/domain as th
 
 `auth.ts` and migration `0002_authentication.sql` add token families, hashed refresh tokens and durable revocation tombstones. The family/owner foreign keys cascade on account deletion; unknown-family revocation markers deliberately have no FK. The integration upgrade test preserves existing users/credentials when applying the auth migration. See [authentication storage and retention](authentication.md#refresh-storage-and-races) for concurrency and cleanup requirements. The migration CLI validates database settings without requiring authentication secrets.
 
+PR-07 reuses these three auth tables without a migration. Session listing projects only public fields, with an owner-scoped keyset and an existence check for usable tokens. Targeted revoke inserts a tombstone from an owner-filtered SELECT in one SQL statement; logout-all keeps the existing user-row locking protocol. See [session semantics](authentication.md#session-administration).
+
 `DatabaseModule` registers a single database with the official `DrizzleModule.forRootAsync()`. Feature services can inject it directly; no base repository or query wrapper is required:
 
 ```ts

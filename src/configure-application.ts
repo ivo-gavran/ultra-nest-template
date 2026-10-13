@@ -1,4 +1,5 @@
 import { StandardSchemaValidationPipe } from '@nestjs/common';
+import type { RequestHandler } from 'express';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -10,12 +11,19 @@ export function configureApplication(app: INestApplication): void {
 
   const config = app.get(ConfigService<Environment, true>);
   const origins = config.get('AUTH_TRUSTED_ORIGINS', { infer: true });
+  // Before guards, validation and CSRF so rejected auth requests are not cached.
+  const authNoStore: RequestHandler = (request, response, next) => {
+    if (/^\/api\/v1\/auth(?:\/|$)/i.test(request.path))
+      response.setHeader('Cache-Control', 'no-store');
+    next();
+  };
+  app.use(authNoStore);
   app.useSecurityHeaders();
   app.enableCsrfProtection({ trustedOrigins: origins });
   app.enableCors({
     origin: origins,
     credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
   if (config.get('SWAGGER_ENABLED', { infer: true })) {
