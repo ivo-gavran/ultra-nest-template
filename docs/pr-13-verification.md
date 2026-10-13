@@ -2,8 +2,10 @@
 
 Scope: final release-candidate implementation, based on fetched `origin/main`
 at `c422d0273f544588bed12a5954b36f83221619ff` on branch
-`feat/pr-13-release-candidate`. No merge, release, tag, publication,
-deployment, migrations, dependency upgrades or branch-protection changes.
+`feat/pr-13-release-candidate`. Private `package.json` version is set to
+`1.0.0` for release-candidate metadata only. No merge, GitHub release, Git
+tag, publication, deployment, migrations, dependency upgrades or
+branch-protection changes.
 
 See [release readiness](release-readiness.md) for the five-part audit, supply-chain
 exceptions, all 31 required E2E scenarios, deployment gates and rollback runbook.
@@ -89,5 +91,6 @@ No local implementation blocker remains. Existing operational limits and two
 moderate tooling exceptions are classified in the release-readiness report.
 Hosted **CI / Verify** on the final PR head is a separate gate recorded in the
 PR/Checks tab; local results do not assert a green GitHub run. Independent final
-review and explicit release authorization remain required. No merge, publish,
-deploy, GitHub release or `v1.0.0` tag was performed.
+review and explicit release authorization remain required. Private package
+metadata is `1.0.0`; no merge, publish, deploy, GitHub release or `v1.0.0` Git
+tag was performed.

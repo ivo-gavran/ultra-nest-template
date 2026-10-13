@@ -3,8 +3,12 @@
 PR-13 is the final implementation milestone, **not release authorization**.
 Independent final review and a green final-head **CI / Verify** are required
 before a maintainer separately authorizes merging, publication, deployment,
-a GitHub release or the `v1.0.0` tag. This work performs none of those actions.
-The private package version remains `0.1.0`; versioning is a release decision.
+a GitHub release or the `v1.0.0` Git tag. This work performs none of those
+actions. The private `package.json` version is `1.0.0` so release-candidate
+metadata matches the intended first release; the package stays `"private": true`
+and is not published by this milestone. Creating or pushing the `v1.0.0` tag,
+a GitHub release, npm publication, merge or deployment remains a separate
+explicit authorization after independent final review.
 
 ## Initial gap analysis (2026-10-13)
 

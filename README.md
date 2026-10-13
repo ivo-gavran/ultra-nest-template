@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter, currently at **PR-13: release candidate pending independent final review**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
+A modular NestJS REST starter at private package version **1.0.0**, currently **PR-13: release candidate pending independent final review**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
 
 ## Requirements and installation
 
@@ -229,4 +229,4 @@ echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 - [Observability guide](docs/observability.md)
 - [PR-12 verification results](docs/pr-12-verification.md)
 
-Next milestone: **independent final review and explicit release authorization**. See the [release-readiness audit, gates and deployment/rollback checklist](docs/release-readiness.md) and [PR-13 verification](docs/pr-13-verification.md). No v1.0.0 tag, GitHub release, publication, merge or deployment is authorized by this milestone. Optional extensions remain opt-in.
+Next milestone: **independent final review and explicit release authorization**. See the [release-readiness audit, gates and deployment/rollback checklist](docs/release-readiness.md) and [PR-13 verification](docs/pr-13-verification.md). `package.json` already declares private version `1.0.0`; no `v1.0.0` Git tag, GitHub release, publication, merge or deployment is authorized by this milestone. Optional extensions remain opt-in.
