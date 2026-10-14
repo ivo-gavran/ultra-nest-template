@@ -1,6 +1,6 @@
 import { authEnvironment } from './helpers/auth-environment.js';
 import 'reflect-metadata';
-import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { OpenAPIObject } from '@nestjs/swagger';
@@ -80,7 +80,7 @@ describe('Application HTTP conventions', () => {
     expect(await response.json()).toMatchObject({
       statusCode: 400,
       error: 'Bad Request',
-      message: expect.any(Array),
+      message: expect.any(Array) as unknown,
     });
   });
 
@@ -146,12 +146,12 @@ describe('Application HTTP conventions', () => {
             minimum: 1,
             maximum: 100,
             default: 20,
-          }),
+          }) as unknown,
         }),
         expect.objectContaining({
           name: 'after',
           in: 'query',
-          schema: expect.objectContaining({ format: 'uuid' }),
+          schema: expect.objectContaining({ format: 'uuid' }) as unknown,
         }),
       ]),
     );
@@ -161,7 +161,7 @@ describe('Application HTTP conventions', () => {
           name: 'id',
           in: 'path',
           required: true,
-          schema: expect.objectContaining({ format: 'uuid' }),
+          schema: expect.objectContaining({ format: 'uuid' }) as unknown,
         }),
       ]),
     );
@@ -205,8 +205,8 @@ describe('Application HTTP conventions', () => {
             schema: {
               additionalProperties: false,
               properties: {
-                email: expect.any(Object),
-                displayName: expect.any(Object),
+                email: expect.any(Object) as unknown,
+                displayName: expect.any(Object) as unknown,
               },
             },
           },

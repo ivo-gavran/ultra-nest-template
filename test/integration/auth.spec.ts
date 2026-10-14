@@ -6,8 +6,8 @@ import {
   describe,
   expect,
   it,
-  jest,
-} from '@jest/globals';
+  vi,
+} from 'vitest';
 import type { INestApplication, LoggerService } from '@nestjs/common';
 import { JwtSigner, TokenService } from '@nestjs/authentication';
 import { getDrizzleToken } from '@nestjs/drizzle';
@@ -408,9 +408,9 @@ describe('Browser authentication with real PostgreSQL', () => {
     const value = cookie(first);
     const store = app.get(PostgresRefreshTokenStore);
     // Fault injection only; all normal auth and contract cases use real PostgreSQL.
-    jest
-      .spyOn(store, 'getRefreshToken')
-      .mockRejectedValue(new AuthStorageError());
+    vi.spyOn(store, 'getRefreshToken').mockRejectedValue(
+      new AuthStorageError(),
+    );
     for (const path of ['refresh', 'logout']) {
       const response = await post(path, {}, value);
       expect(response.status).toBe(503);

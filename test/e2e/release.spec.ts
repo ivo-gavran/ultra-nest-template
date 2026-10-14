@@ -9,7 +9,7 @@ import {
   describe,
   expect,
   it,
-} from '@jest/globals';
+} from 'vitest';
 import { Controller, Get } from '@nestjs/common';
 import type { BeforeApplicationShutdown } from '@nestjs/common';
 import { Public } from '@nestjs/authentication';

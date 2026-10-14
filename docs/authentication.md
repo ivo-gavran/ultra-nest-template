@@ -127,8 +127,8 @@ The integration suite uses real migrated PostgreSQL and executes every official 
 For an actual browser check with a disposable database:
 
 ```sh
-pnpm build:test
-node .test-dist/test/manual/auth-browser.js
+pnpm build:test:manual
+node .test-manual-dist/test/manual/auth-browser.js
 # Open the printed localhost URL, click Run browser verification, then Ctrl-C.
 ```
 

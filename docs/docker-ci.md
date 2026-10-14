@@ -91,7 +91,7 @@ The `Verify` job executes, in order:
 8. `pnpm build` and `pnpm verify:build`
 9. `bash scripts/verify-compose.sh`
 
-The test suites run sequentially because they rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
+Vitest suites run sequentially with isolated forks; unit/integration startup tests share the scoped `.test-process-dist` build. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
 
 Observability checks in the smoke test:
 

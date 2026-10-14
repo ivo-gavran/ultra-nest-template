@@ -37,11 +37,11 @@ compose exec -T api node --input-type=module -e '
   import { existsSync, readdirSync, readFileSync } from "node:fs";
   assert.notEqual(process.getuid(), 0);
   assert.equal(process.version, "v24.21.0");
-  for (const path of ["src", "test", ".env", ".git", "migrations", "node_modules/jest", "node_modules/typescript", "node_modules/drizzle-kit"]) {
+  for (const path of ["src", "test", ".env", ".git", "migrations", "node_modules/jest", "node_modules/vitest", "node_modules/vite", "node_modules/@swc/core", "node_modules/unplugin-swc", "node_modules/typescript", "node_modules/drizzle-kit"]) {
     assert.equal(existsSync(path), false, `Unexpected runtime file: ${path}`);
   }
   for (const entry of readdirSync("node_modules/.pnpm")) {
-    assert.doesNotMatch(entry, /^(jest|typescript|drizzle-kit|esbuild|sprintf-js|@nestjs\+cli|@testcontainers\+postgresql)@/);
+    assert.doesNotMatch(entry, /^(jest|vitest|@vitest\+[^@]+|vite|@swc\+[^@]+|unplugin-swc|typescript|drizzle-kit|esbuild|sprintf-js|@nestjs\+cli|@testcontainers\+postgresql)@/);
   }
   const artifacts = readdirSync("dist", { recursive: true }).map(String);
   assert.ok(artifacts.includes("main.js.map"));

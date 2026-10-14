@@ -1,13 +1,6 @@
 import 'reflect-metadata';
 import { randomBytes } from 'node:crypto';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Controller, Get } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { JwtSigner, TokenService } from '@nestjs/authentication';

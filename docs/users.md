@@ -84,6 +84,6 @@ New passwords have 12–128 JavaScript code units, are not trimmed, and fit 4096
 
 ## Verification
 
-Run `pnpm test` and `pnpm test:integration` sequentially (both rebuild `.test-dist/`), then `bash scripts/verify-compose.sh`. HTTP integration tests use the established native-fetch ephemeral Nest server fixture and real migrated PostgreSQL, with pooled connections and observed database lock waits rather than timing delays. Fault-injection triggers exercise transaction rollback. Existing official refresh-store concurrency contracts remain enabled.
+Run `pnpm test` and `pnpm test:integration` sequentially (startup tests share the scoped `.test-process-dist/` build), then `bash scripts/verify-compose.sh`. HTTP integration tests use the established native-fetch ephemeral Nest server fixture and real migrated PostgreSQL, with pooled connections and observed database lock waits rather than timing delays. Fault-injection triggers exercise transaction rollback. Existing official refresh-store concurrency contracts remain enabled.
 
 Package evidence: installed public `PasswordHasher`, `@CurrentSession`, `JwtBearerProvider`, `TokenService` and `RefreshTokenStore` declarations/source; [official authentication documentation](https://docs.nestjs.com/security/authentication). Password reset, email verification and MFA remain optional extensions.

@@ -4,7 +4,12 @@ import prettier from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  globalIgnores(['dist/**', '.test-dist/**', 'coverage/**']),
+  globalIgnores([
+    'dist/**',
+    '.test-process-dist/**',
+    '.test-manual-dist/**',
+    'coverage/**',
+  ]),
   { files: ['**/*.js'], extends: [js.configs.recommended] },
   {
     files: [
@@ -13,6 +18,7 @@ export default defineConfig(
       'drizzle.config.ts',
       'commitlint.config.ts',
       'prettier.config.ts',
+      'vitest*.ts',
     ],
     extends: [
       js.configs.recommended,

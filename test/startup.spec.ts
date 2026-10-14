@@ -4,11 +4,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 
-const main = fileURLToPath(new URL('../src/main.js', import.meta.url));
-const schemaModule = new URL('../src/config/environment.js', import.meta.url)
-  .href;
+const main = fileURLToPath(
+  new URL('../.test-process-dist/src/main.js', import.meta.url),
+);
+const schemaModule = new URL(
+  '../.test-process-dist/src/config/environment.js',
+  import.meta.url,
+).href;
 const configModule = import.meta.resolve('@nestjs/config');
 
 describe('Configuration at process startup', () => {

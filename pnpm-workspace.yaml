@@ -6,6 +6,8 @@ onlyBuiltDependencies:
   - unrs-resolver
 # Hooks are installed explicitly with pnpm hooks:install.
 ignoredBuiltDependencies:
+  # Use the lockfile platform binary; prohibit SWC postinstall network fallback.
+  - '@swc/core'
   - '@nestjs/core'
   - '@scarf/scarf'
   - lefthook

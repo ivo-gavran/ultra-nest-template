@@ -1,14 +1,7 @@
 import { authEnvironment } from '../helpers/auth-environment.js';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { PasswordHasher } from '@nestjs/authentication';
 import { ConfigService } from '@nestjs/config';
@@ -16,10 +9,13 @@ import { getDrizzleToken } from '@nestjs/drizzle';
 import { Test } from '@nestjs/testing';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { eq, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 import { AppModule } from '../../src/app.module.js';
 import { environmentSchema } from '../../src/config/environment.js';
 import type { Database } from '../../src/database/database.module.js';
 import { users } from '../../src/database/schema/users.js';
+import * as schema from '../../src/database/schema/index.js';
 import { PasswordsService } from '../../src/modules/users/passwords.service.js';
 import { publicUserSchema } from '../../src/modules/users/schemas/user.schema.js';
 import {
@@ -234,5 +230,42 @@ describe('Users persistence on PostgreSQL', () => {
     expect((failure as Error).cause).toBeUndefined();
     expect(String(failure).includes(hash)).toBe(false);
     expect(String(failure).includes('failure@example.com')).toBe(false);
+  });
+
+  // Vitest counts these catch statements individually. Exercise real read
+  // failures rather than lowering the released users coverage threshold.
+  it('sanitizes every credential/profile/list read failure and preserves the healthy pool', async () => {
+    const user = await service.create(input);
+    const pool = new Pool({
+      connectionString: container!.getConnectionUri(),
+      // Hide public tables only on this pool; no schema or migrations change.
+      options: '-c search_path=pg_catalog',
+    });
+    const repository = new UsersRepository(drizzle({ client: pool, schema }));
+    const reads = [
+      () => repository.findPasswordHash(user.id),
+      () => repository.findAuthenticationCredentials(user.email),
+      () => repository.findById(user.id),
+      () => repository.findByEmail(user.email),
+      () => repository.list({ limit: 20, sort: 'createdAt', order: 'desc' }),
+    ];
+    try {
+      for (const read of reads) {
+        const failure: unknown = await read().catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(UserPersistenceError);
+        expect((failure as Error).message).toBe(
+          'User persistence operation failed',
+        );
+        expect((failure as Error).cause).toBeUndefined();
+        expect(String(failure)).not.toContain(user.email);
+        expect(String(failure)).not.toContain(user.id);
+        expect(String(failure)).not.toContain('select');
+      }
+    } finally {
+      await pool.end();
+    }
+    expect(pool.ended).toBe(true);
+    expect(pool.totalCount).toBe(0);
+    expect(await service.findById(user.id)).toEqual(user);
   });
 });

@@ -88,16 +88,18 @@ Preserve the existing application behavior unless the task authorizes a change.
 
 ## Testing and CI
 
-- Jest unit tests cover policy decisions and business logic with focused mocks.
+- Vitest unit tests cover policy decisions and business logic with focused mocks.
 - Integration tests use real PostgreSQL through Testcontainers, actual migrations,
   constraints, transactions, pooled-connection races and restart persistence.
 - E2E initializes Nest and exercises real loopback HTTP with the existing native
   fetch convention. Cover auth, RBAC, users, errors, health and security.
 - Run every `@nestjs/authentication/testing` refresh-store contract with concurrency
   enabled against PostgreSQL. In-memory tests cannot establish production safety.
-- Run `test`, `test:integration`, `test:e2e` and `test:cov` sequentially because each
-  rebuilds `.test-dist`. CI runs unit + integration once through `test:cov`, then
-  `test:e2e`. Preserve scoped coverage thresholds and the Jest ESM preload.
+- Run `test`, `test:integration`, `test:e2e` and `test:cov` sequentially; startup
+  suites share `.test-process-dist`. CI runs unit + integration once through
+  `test:cov`, then `test:e2e`. Preserve V8 scoped and remaining-source coverage
+  thresholds, SWC decorator metadata, isolated forks and sequential file execution.
+  Only real subprocess entry points/imports use the scoped TypeScript build.
 - Release E2E retains production scrypt, default rate budgets, real migrations and
   security modules. Test-only controllers/bootstraps stay under `test/`, never
   behind production environment flags.

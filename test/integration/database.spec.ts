@@ -1,14 +1,7 @@
 import { authEnvironment } from '../helpers/auth-environment.js';
 import 'reflect-metadata';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getDrizzleToken } from '@nestjs/drizzle';

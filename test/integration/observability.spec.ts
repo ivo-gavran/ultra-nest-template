@@ -8,7 +8,7 @@ import {
   describe,
   expect,
   it,
-} from '@jest/globals';
+} from 'vitest';
 import {
   Controller,
   Get,
@@ -580,7 +580,7 @@ describe('Observability with real PostgreSQL', () => {
               name: 'exception',
               attributes: expect.objectContaining({
                 'exception.type': errorType,
-              }),
+              }) as unknown,
             }),
           ]);
           expect(span.traceId).toBe(failure!.traceId);

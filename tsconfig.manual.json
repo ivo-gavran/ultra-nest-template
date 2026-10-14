@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "outDir": ".test-manual-dist" },
+  "include": ["test/manual/auth-browser.ts"]
+}
