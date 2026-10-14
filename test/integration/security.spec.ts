@@ -1,11 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { INestApplication, LoggerService } from '@nestjs/common';
 import { ApplicationConfig } from '@nestjs/core';
 import { getDrizzleToken } from '@nestjs/drizzle';

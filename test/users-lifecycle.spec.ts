@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BadRequestException,
   ConflictException,
@@ -34,44 +34,42 @@ describe('Account password workflow', () => {
     repository = new UsersRepository({} as Database);
     passwords = new PasswordsService(new PasswordHasher({ logN: 10 }));
     service = new UsersService(repository, passwords);
-    jest
-      .spyOn(repository, 'findPasswordHash')
-      .mockResolvedValue('internal-hash');
-    jest.spyOn(repository, 'changePassword').mockResolvedValue();
-    jest.spyOn(passwords, 'hash').mockResolvedValue('replacement-hash');
+    vi.spyOn(repository, 'findPasswordHash').mockResolvedValue('internal-hash');
+    vi.spyOn(repository, 'changePassword').mockResolvedValue();
+    vi.spyOn(passwords, 'hash').mockResolvedValue('replacement-hash');
   });
 
   it('requires verification before hashing or writing', async () => {
-    jest.spyOn(passwords, 'verify').mockResolvedValue(false);
+    vi.spyOn(passwords, 'verify').mockResolvedValue(false);
     await expect(
       service.changePassword(id, undefined, input),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(jest.spyOn(passwords, 'hash')).not.toHaveBeenCalled();
-    expect(jest.spyOn(repository, 'changePassword')).not.toHaveBeenCalled();
+    expect(vi.spyOn(passwords, 'hash')).not.toHaveBeenCalled();
+    expect(vi.spyOn(repository, 'changePassword')).not.toHaveBeenCalled();
   });
 
   it('uses the verified hash as the concurrent-write precondition', async () => {
-    jest.spyOn(passwords, 'verify').mockResolvedValue(true);
+    vi.spyOn(passwords, 'verify').mockResolvedValue(true);
     await service.changePassword(id, undefined, input);
-    expect(jest.spyOn(repository, 'changePassword')).toHaveBeenCalledWith(
+    expect(vi.spyOn(repository, 'changePassword')).toHaveBeenCalledWith(
       id,
       'internal-hash',
       'replacement-hash',
       undefined,
     );
-    jest
-      .spyOn(repository, 'changePassword')
-      .mockRejectedValue(new UserPasswordChangedError());
+    vi.spyOn(repository, 'changePassword').mockRejectedValue(
+      new UserPasswordChangedError(),
+    );
     await expect(
       service.changePassword(id, undefined, input),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('maps atomic persistence failure to a safe server error', async () => {
-    jest.spyOn(passwords, 'verify').mockResolvedValue(true);
-    jest
-      .spyOn(repository, 'changePassword')
-      .mockRejectedValue(new UserPersistenceError());
+    vi.spyOn(passwords, 'verify').mockResolvedValue(true);
+    vi.spyOn(repository, 'changePassword').mockRejectedValue(
+      new UserPersistenceError(),
+    );
     await expect(
       service.changePassword(id, undefined, input),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);

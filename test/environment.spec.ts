@@ -1,5 +1,5 @@
 import { authEnvironment } from './helpers/auth-environment.js';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import { environmentSchema } from '../src/config/environment.js';
 
 const databaseUrl = 'postgresql://test:test@localhost:5432/test';

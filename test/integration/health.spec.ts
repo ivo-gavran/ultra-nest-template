@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Controller, Get } from '@nestjs/common';
 import type {
   BeforeApplicationShutdown,
@@ -102,7 +102,7 @@ describe('Public health and lifecycle with real PostgreSQL', () => {
   });
 
   it('serves public probes repeatedly, with security headers and no health rate limits or liveness queries', async () => {
-    const connect = jest.spyOn(pool, 'connect');
+    const connect = vi.spyOn(pool, 'connect');
     try {
       for (let i = 0; i < 8; i++) {
         const live = await fetch(`${url}/api/v1/health/live`);
@@ -246,7 +246,7 @@ describe('Public health and lifecycle with real PostgreSQL', () => {
       expect(pool.waitingCount).toBe(1);
       // Hand the timed-out waiter a client; it must destroy it without a query.
       const client = held.pop()!;
-      const query = jest.spyOn(client, 'query');
+      const query = vi.spyOn(client, 'query');
       const removed = deferred<void>();
       pool.once('remove', () => removed.resolve());
       client.release();
@@ -270,7 +270,7 @@ describe('Public health and lifecycle with real PostgreSQL', () => {
       [InFlightController],
     );
     const lifecyclePool = lifecycleApp.get<Database>(getDrizzleToken()).$client;
-    const end = jest.spyOn(lifecyclePool, 'end');
+    const end = vi.spyOn(lifecyclePool, 'end');
     const work = lifecycleApp.get(InFlightController);
     const health = lifecycleApp.get(HealthController);
     const indicator = lifecycleApp.get(PostgresHealthIndicator);
@@ -283,7 +283,7 @@ describe('Public health and lifecycle with real PostgreSQL', () => {
       await work.draining.promise;
       expect(lifecyclePool.ended).toBe(false);
       indicator.onModuleDestroy(); // Repeated lifecycle notification is safe.
-      const connect = jest.spyOn(lifecyclePool, 'connect');
+      const connect = vi.spyOn(lifecyclePool, 'connect');
       try {
         await expect(health.ready()).rejects.toMatchObject({ status: 503 });
         const response = await fetch(`${base}/api/v1/health/ready`);

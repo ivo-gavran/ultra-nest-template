@@ -3,7 +3,8 @@ node_modules/
 
 # Build artifacts
 dist/
-.test-dist/
+.test-process-dist/
+.test-manual-dist/
 *.tsbuildinfo
 
 # Local configuration and secrets

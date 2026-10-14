@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import { PasswordHasher } from '@nestjs/authentication';
 import { PasswordsService } from '../src/modules/users/passwords.service.js';
 

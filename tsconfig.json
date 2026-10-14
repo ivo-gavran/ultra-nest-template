@@ -19,7 +19,8 @@
     "test/**/*.ts",
     "drizzle.config.ts",
     "commitlint.config.ts",
-    "prettier.config.ts"
+    "prettier.config.ts",
+    "vitest*.ts"
   ],
-  "exclude": ["node_modules", "dist", ".test-dist"]
+  "exclude": ["node_modules", "dist", ".test-process-dist", ".test-manual-dist"]
 }

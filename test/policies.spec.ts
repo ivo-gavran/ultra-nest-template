@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { SessionsPolicy } from '../src/modules/authorization/policies/sessions.policy.js';
 import { UsersPolicy } from '../src/modules/authorization/policies/users.policy.js';

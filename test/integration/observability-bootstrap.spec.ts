@@ -9,21 +9,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { SQL_PRIVACY_PROBE_LITERAL } from '../fixtures/sql-privacy-probe.controller.js';
 import { authEnvironment } from '../helpers/auth-environment.js';
 import { startTestDatabase } from '../helpers/postgres.js';
 
 const fixtureMain = fileURLToPath(
-  new URL('../fixtures/observability-main.js', import.meta.url),
+  new URL(
+    '../../.test-process-dist/test/fixtures/observability-main.js',
+    import.meta.url,
+  ),
 );
 
 interface Received {
@@ -144,7 +140,9 @@ describe('Production and isolated privacy bootstraps with OpenTelemetry', () => 
       stderr = '';
       const main = privacyFixture
         ? fixtureMain
-        : fileURLToPath(new URL('../../src/main.js', import.meta.url));
+        : fileURLToPath(
+            new URL('../../.test-process-dist/src/main.js', import.meta.url),
+          );
       const port = await freePort();
       const collectorUrl = `http://127.0.0.1:${(collector.address() as AddressInfo).port}`;
       const databaseUrl = container.getConnectionUri();

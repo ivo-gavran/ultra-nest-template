@@ -1,12 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   AuthenticationStorage,
   PasswordHasher,

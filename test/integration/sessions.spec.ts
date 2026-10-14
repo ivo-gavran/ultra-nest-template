@@ -1,12 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { INestApplication, LoggerService } from '@nestjs/common';
 import { JwtSigner, TokenService } from '@nestjs/authentication';
 import { getDrizzleToken } from '@nestjs/drizzle';

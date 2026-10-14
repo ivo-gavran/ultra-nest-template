@@ -27,23 +27,22 @@ Reviewed follow-up work includes refresh/tombstone retention tooling, shared
 limiting for multiple replicas, deployment-specific scrypt capacity/load testing,
 optional password reset/email verification/MFA, last-admin recovery policy,
 image digest pinning and broader browser/platform certification. These remain
-explicit operational decisions or opt-in extensions. Two moderate tooling audit
-exceptions are recorded below.
+explicit operational decisions or opt-in extensions. One moderate tooling audit
+exception remains recorded below.
 
 ## Dependency and install-script review
 
 Pinned Node **24.21.0**, pnpm **10.33.0**. `pnpm audit --json` against the root
-committed tree on **2026-10-13** reports **2 moderate, 0 high, 0 critical**;
+committed tree on **2026-10-14** reports **1 moderate, 0 high, 0 critical**;
 `pnpm audit --prod --json` reports **0 advisories**. Both paths were checked
 against installed dependencies, not the audit metadata's misleading
-`devDependencies: 0` summary. No runtime/library upgrades or lockfile edits
-are necessary for these findings. A clean audit is advisory-database evidence,
+`devDependencies: 0` summary. Removing Jest also removed the former `sprintf-js` advisory; the remaining
+Drizzle tooling exposure requires no unrelated dependency upgrade. A clean audit is advisory-database evidence,
 not proof that software has no vulnerabilities.
 
 | Package / advisory                                                                                                           | Exposure and mitigation                                                                                                                                                                                                                                                           | Decision / review                                                                                                                                                                                                                                                                                         |
 | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `esbuild@0.18.20`, [GHSA-67mh-4wv8-2f99](https://github.com/evanw/esbuild/security/advisories/GHSA-67mh-4wv8-2f99), moderate | Development `drizzle-kit → @esbuild-kit/esm-loader → core-utils`; also present in the separate migration tooling image. Vulnerability requires esbuild's HTTP serve feature; this project invokes migration/config transformation only, never that server. Absent from API image. | Exception: patched esbuild starts at 0.25.0, outside the loader's declared minor range. Avoid an unverified transitive override or Drizzle major migration for an unreachable server path. Do not expose esbuild serve from tooling. Reviewed 2026-10-13; reassess by 2026-11-13 or on toolchain changes. |
-| `sprintf-js@1.0.3`, [GHSA-hp3w-g68c-fv3c / CVE-2026-97058](https://github.com/advisories/GHSA-hp3w-g68c-fv3c), moderate      | Jest/Istanbul config loading through `js-yaml → argparse`; unbounded precision in attacker-controlled format strings can throw RangeError. Repository-owned test/config tooling only; absent from API image. Treat untrusted PR code as untrusted CI execution regardless.        | Exception: audit supplies no patched release. Keep CI read-only with no application secrets; do not pass untrusted format strings. Reviewed 2026-10-13; reassess by 2026-11-13 or when a fix is available.                                                                                                |
 
 No advisory IDs are suppressed. CI fails on all-dependency high/critical
 findings and production moderate-or-higher findings; lower findings remain
@@ -52,9 +51,10 @@ existing weekly reviewed updates, immutable action pins and no automatic merge.
 
 The `pnpm-workspace.yaml` permits build scripts only for
 `@parcel/watcher` and `unrs-resolver` (development tooling), and explicitly
-blocks Nest donation/Scarf telemetry/Lefthook auto-install scripts. Keep install-script approvals minimal and review any additions.
+blocks Nest donation/Scarf telemetry/Lefthook auto-install scripts. SWC uses its
+lockfile platform binary; its network-capable postinstall fallback is blocked. Keep install-script approvals minimal and review any additions.
 Docker performs a separate frozen `--prod --no-optional` install. The smoke
-checks inspect its physical pnpm store as well as top-level packages: no Jest,
+checks inspect its physical pnpm store as well as top-level packages: no test runner/compiler tooling,
 TypeScript, Nest CLI, Drizzle Kit, esbuild, sprintf-js or Testcontainers. The
 Node base image's bundled system/package utilities are unchanged. Migration
 tooling stays in its own non-root target. Secrets are runtime-only; the build
@@ -62,7 +62,7 @@ context is an allowlist and omits `.env` and tests.
 
 ## Release gates and test scope
 
-Run sequentially; each test command cleans/rebuilds `.test-dist`:
+Run sequentially; startup suites share the scoped `.test-process-dist` build:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -80,18 +80,18 @@ pnpm verify:build
 bash scripts/verify-compose.sh
 ```
 
-`test:cov` runs unit and integration suites together once with Jest V8 coverage,
+`test:cov` runs unit and integration suites together once with Vitest V8 coverage,
 including official concurrent store contracts. CI uses this instead of running
 those suites twice, then runs E2E separately. Reports are local
 `coverage/index.html`, `coverage/lcov.info` and `coverage/coverage-summary.json`.
-Only compiled application modules are collected and remapped to TypeScript;
+Only application TypeScript source is collected;
 tests, fixtures, migrations, generated migration metadata, dependencies and
 scripts do not inflate coverage. Subprocess bootstrap is behavior-tested but
-its coverage is not attributed to the parent Jest process. Thresholds focus on
+its coverage is not attributed to the parent Vitest process. Thresholds focus on
 auth, authorization and users (95% lines/statements, 90% branches/functions),
-and security (95% lines/statements, 85% branches, 90% functions). The remaining
-application has 90% lines/statements/functions and 85% branches floors. The
-measured baseline is about 98% lines and 94% branches; these floors leave
+and security (95% lines/statements, 85% branches, 90% functions). The global aggregate and the remaining
+application each have 90% lines/statements/functions and 85% branches floors. See [testing configuration and measurement](testing.md) for the runner migration
+comparison. The released Jest baseline is 97.97% lines and 93.91% branches; these floors leave
 headroom without an arbitrary 100% requirement. Coverage supplements behavioral/race
 proof and is not a claim of completeness.
 

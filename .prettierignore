@@ -1,5 +1,6 @@
 node_modules/
 dist/
-.test-dist/
+.test-process-dist/
+.test-manual-dist/
 coverage/
 pnpm-lock.yaml

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { deferred } from './helpers/deferred.js';
 import { EventEmitter } from 'node:events';
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HealthIndicatorService } from '@nestjs/terminus';
 import type { HealthCheckService } from '@nestjs/terminus';
 import type { PoolClient } from 'pg';
@@ -14,17 +14,15 @@ import {
 
 function fixture() {
   const events = new EventEmitter();
-  const query = jest
+  const query = vi
     .fn<(sql: string) => Promise<unknown>>()
     .mockResolvedValue({ rows: [] });
-  const release = jest.fn<(destroy?: boolean) => void>();
+  const release = vi.fn<(destroy?: boolean) => void>();
   const client = Object.assign(events, {
     query,
     release,
   }) as unknown as PoolClient;
-  const connect = jest
-    .fn<() => Promise<PoolClient>>()
-    .mockResolvedValue(client);
+  const connect = vi.fn<() => Promise<PoolClient>>().mockResolvedValue(client);
   const db = { $client: { connect } } as unknown as Database;
   const indicator = new PostgresHealthIndicator(
     db,
@@ -36,7 +34,7 @@ function fixture() {
 const down = { postgres: { status: 'down' } };
 const up = { postgres: { status: 'up' } };
 afterEach(() => {
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe('Health indicator resource ownership', () => {
@@ -86,7 +84,7 @@ describe('Health indicator resource ownership', () => {
   it('destroys an active connection on Terminus timeout; does not merely abandon the query', async () => {
     const { indicator, query, release } = fixture();
     const timeout = new AbortController();
-    const timer = jest
+    const timer = vi
       .spyOn(AbortSignal, 'timeout')
       .mockReturnValue(timeout.signal);
     const entered = deferred<void>();
@@ -110,7 +108,7 @@ describe('Health indicator resource ownership', () => {
   it('retains a timed-out acquisition slot, rejects new probes, and destroys a late client without querying', async () => {
     const { indicator, connect, query, release, client } = fixture();
     const timeout = new AbortController();
-    jest.spyOn(AbortSignal, 'timeout').mockReturnValue(timeout.signal);
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeout.signal);
     const acquisition = deferred<PoolClient>();
     connect.mockReturnValueOnce(acquisition.promise);
     const check = indicator.check();
@@ -124,14 +122,14 @@ describe('Health indicator resource ownership', () => {
     expect(query).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledWith(true);
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     expect(await indicator.check()).toEqual(up);
   });
 
   it('a late acquisition rejection is handled and releases the probe slot', async () => {
     const { indicator, connect } = fixture();
     const timeout = new AbortController();
-    jest.spyOn(AbortSignal, 'timeout').mockReturnValue(timeout.signal);
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeout.signal);
     const acquisition = deferred<PoolClient>();
     connect.mockReturnValueOnce(acquisition.promise);
     const check = indicator.check();
@@ -140,7 +138,7 @@ describe('Health indicator resource ownership', () => {
     expect(await check).toEqual(down);
     acquisition.reject(new Error('Connection timeout'));
     await Promise.resolve();
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     expect(await indicator.check()).toEqual(up);
   });
 

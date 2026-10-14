@@ -8,7 +8,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import type { ErrorEvent } from '@sentry/nestjs';
 import { loadEnvironment } from '../src/config/load-environment.js';
 import { telemetryEnvironmentSchema } from '../src/config/telemetry.js';
@@ -192,7 +192,7 @@ describe('JSON logger', () => {
     );
     logger.log('outside');
     expect(records[0]).toEqual({
-      timestamp: expect.any(Number),
+      timestamp: expect.any(Number) as unknown,
       level: 'log',
       service: 'test-service',
       pid: process.pid,

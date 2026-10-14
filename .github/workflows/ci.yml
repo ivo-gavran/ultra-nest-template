@@ -34,7 +34,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm typecheck
-      # These suites rebuild the same .test-dist directory; keep them sequential.
+      # Keep database suites and the shared subprocess build sequential.
       - name: Verify Docker availability
         run: docker info
       # Coverage runs unit + integration once, including official store races.

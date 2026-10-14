@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "outDir": ".test-process-dist" },
+  "include": ["src/main.ts", "test/fixtures/observability-main.ts"]
+}

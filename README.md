@@ -87,6 +87,7 @@ pnpm lint
 pnpm format:check
 pnpm typecheck
 pnpm test
+pnpm test:watch       # Unit tests; rerun on changes
 pnpm test:integration # Docker required
 pnpm test:e2e         # Docker; production security defaults
 pnpm test:cov         # Unit + integration coverage; Docker required
@@ -96,7 +97,7 @@ pnpm verify:build
 
 Use `pnpm format` to format code, tooling and documentation. `prettier.config.ts` preserves single quotes and trailing commas; `commitlint.config.ts` extends the Conventional Commits rules. Both configurations are included in formatting, type-aware linting and type checks. The pinned Node supports native Prettier TypeScript configuration loading without flags; Commitlint uses its bundled TypeScript loader. No extra loader or dependency is required. Prefer TypeScript for future tooling when supported cleanly by the pinned toolchain.
 
-Jest runs JavaScript compiled by the pinned TypeScript compiler into `.test-dist/`, preserving ESM and Nest decorator metadata. `pnpm test` cleans/rebuilds this output first. Tests cover the environment schema, isolated startup failures, `.env` loading/precedence, HTTP payload validation, built-in errors and generated OpenAPI constraints. HTTP tests use native `fetch` against ephemeral loopback ports; servers and temporary files are cleaned up afterwards. Test environment values are synthetic and do not require a database or local `.env`. Node's `--experimental-vm-modules` is required for Jest ESM and may print an experimental warning. No ts-jest/Babel transformer is needed. Keep `test/setup-env.ts`'s Nest ESM preloads: the CommonJS `@nestjs/throttler` package can otherwise trigger a `require(esm)` cycle in Jest's VM loader; production ESM needs no preload. Run the separate database integration suite as described below.
+Vitest runs application and test TypeScript directly through SWC, preserving legacy decorators, runtime metadata and ESM. Unit tests remain independent of Docker; integration and E2E use real migrated PostgreSQL and native `fetch` against ephemeral loopback ports. Files run sequentially in isolated Node forks, with hooks in registration order and automatic mock restoration. Startup and telemetry tests still execute real Node subprocesses: global setup compiles only their entry points and imports with the pinned TypeScript compiler into `.test-process-dist/`, also rebuilding on watch reruns. Production compilation remains unchanged. See [test configuration, subprocesses and coverage](docs/testing.md).
 
 ## PostgreSQL and migrations
 
@@ -116,7 +117,7 @@ docker info
 pnpm test:integration
 ```
 
-This command starts disposable `postgres:17-alpine` containers, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Users tests cover normalized email uniqueness, concurrent duplicates, safe public models and upgrades from the pre-users schema with existing data. Each suite has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite, including strict user schemas and real scrypt hashing/verification. Run all test commands sequentially because they rebuild `.test-dist/`. `pnpm test:e2e` is the isolated release lifecycle suite; `pnpm test:cov` runs unit + integration with V8 reports under `coverage/`. See [release gates and scope](docs/release-readiness.md#release-gates-and-test-scope).
+This command starts disposable `postgres:17-alpine` containers, applies the actual `pnpm db:migrate` command and tests inserts, queries, constraints, transaction commit/rollback, repeat migrations and pool shutdown. Users tests cover normalized email uniqueness, concurrent duplicates, safe public models and upgrades from the pre-users schema with existing data. Each suite has a new database; records are cleared between tests, and pools/containers are closed afterwards. The first run needs network access to pull images. It never uses the development `DATABASE_URL`. Missing Docker or a failed migration makes the command fail; database tests are not silently skipped. `pnpm test` remains the independent, database-free application suite, including strict user schemas and real scrypt hashing/verification. Run test commands sequentially; startup suites share `.test-process-dist/`, and database suites manage disposable containers. `pnpm test:e2e` is the isolated release lifecycle suite; `pnpm test:cov` runs unit + integration with V8 reports under `coverage/`. See [release gates and scope](docs/release-readiness.md#release-gates-and-test-scope).
 
 ## Users API and persistence
 
