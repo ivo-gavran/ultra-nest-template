@@ -3,11 +3,3 @@ dist/
 .test-dist/
 coverage/
 pnpm-lock.yaml
-# Preserve supplied plans and PR-00 evidence as historical snapshots.
-AGENTS.md
-CODEX_START_PROMPT.md
-NESTJS_STARTER_IMPLEMENTATION_PLAN.md
-docs/adr/001-auth-transport.md
-docs/adr/002-auth-session-model.md
-docs/pr-00-compatibility.md
-spikes/

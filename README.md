@@ -1,6 +1,6 @@
 # Ultra Nest Template
 
-A modular NestJS REST starter at private package version **1.0.0**, currently **PR-13: release candidate pending independent final review**. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
+A modular NestJS REST starter, officially released as [**v1.0.0**](https://github.com/ivo-gavran/ultra-nest-template/releases/tag/v1.0.0). The package remains private for use as a repository template. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
 
 ## Requirements and installation
 
@@ -58,7 +58,7 @@ pnpm build
 pnpm start
 ```
 
-Production output is ESM in `dist/`, with source maps and no tests. See [internal source-map debugging](docs/observability.md#internal-source-map-debugging). Keep `package.json` beside the output so Node retains ESM mode. Local TypeScript imports use `.js` extensions. TypeScript **6.0.3** and NestJS **12.1.3** retain the compatibility decisions from PR-00.
+Production output is ESM in `dist/`, with source maps and no tests. See [internal source-map debugging](docs/observability.md#internal-source-map-debugging). Keep `package.json` beside the output so Node retains ESM mode. Local TypeScript imports use `.js` extensions. The pinned TypeScript **6.0.3** satisfies Swagger **12.0.2**'s `^5.5.0 || ^6.0.0` peer range; keep this constraint in mind when updating the toolchain. NestJS is pinned to **12.1.3**.
 
 Set `NODE_ENV=production` explicitly for production runs. Both Swagger UI (`/docs`, including assets) and its OpenAPI document (`/docs-json`) are absent by default in production. Set `SWAGGER_ENABLED=true` to expose both, or `false` to disable them in any environment. YAML documentation is not exposed.
 
@@ -94,18 +94,9 @@ pnpm build
 pnpm verify:build
 ```
 
-Use `pnpm format` to format application code and current tooling/docs. The supplied plans, ADRs and PR-00 snapshot are excluded from root formatting to preserve their contents; the compatibility spike also remains outside root lint, build and tests.
+Use `pnpm format` to format code, tooling and documentation. `prettier.config.ts` preserves single quotes and trailing commas; `commitlint.config.ts` extends the Conventional Commits rules. Both configurations are included in formatting, type-aware linting and type checks. The pinned Node supports native Prettier TypeScript configuration loading without flags; Commitlint uses its bundled TypeScript loader. No extra loader or dependency is required. Prefer TypeScript for future tooling when supported cleanly by the pinned toolchain.
 
-Jest runs JavaScript compiled by the pinned TypeScript compiler into `.test-dist/`, preserving ESM and Nest decorator metadata. `pnpm test` cleans/rebuilds this output first. Tests cover the environment schema, isolated startup failures, `.env` loading/precedence, HTTP payload validation, built-in errors and generated OpenAPI constraints. HTTP tests use native `fetch` against ephemeral loopback ports; servers and temporary files are cleaned up afterwards. Test environment values are synthetic and do not require a database or local `.env`. Node's `--experimental-vm-modules` is required for Jest ESM and may print an experimental warning. No ts-jest/Babel transformer is needed. Run the separate database integration suite as described below.
-
-The original spike has its own installation and lockfile:
-
-```sh
-cd spikes/pr-00
-pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
-pnpm --ignore-workspace typecheck
-pnpm --ignore-workspace test
-```
+Jest runs JavaScript compiled by the pinned TypeScript compiler into `.test-dist/`, preserving ESM and Nest decorator metadata. `pnpm test` cleans/rebuilds this output first. Tests cover the environment schema, isolated startup failures, `.env` loading/precedence, HTTP payload validation, built-in errors and generated OpenAPI constraints. HTTP tests use native `fetch` against ephemeral loopback ports; servers and temporary files are cleaned up afterwards. Test environment values are synthetic and do not require a database or local `.env`. Node's `--experimental-vm-modules` is required for Jest ESM and may print an experimental warning. No ts-jest/Babel transformer is needed. Keep `test/setup-env.ts`'s Nest ESM preloads: the CommonJS `@nestjs/throttler` package can otherwise trigger a `require(esm)` cycle in Jest's VM loader; production ESM needs no preload. Run the separate database integration suite as described below.
 
 ## PostgreSQL and migrations
 
@@ -129,7 +120,7 @@ This command starts disposable `postgres:17-alpine` containers, applies the actu
 
 ## Users API and persistence
 
-Import `UsersModule` in a consuming feature to inject `UsersService` and `PasswordsService`. The service supports create, lookup by UUID/email and updates to email/display name. It validates strict Zod inputs, normalizes email, hashes passwords with the PR-00-verified `@nestjs/authentication` scrypt implementation and returns only explicitly selected public fields. PostgreSQL enforces email uniqueness through an index on `lower(email)`, including concurrent requests.
+Import `UsersModule` in a consuming feature to inject `UsersService` and `PasswordsService`. The service supports create, lookup by UUID/email and updates to email/display name. It validates strict Zod inputs, normalizes email, hashes passwords with the pinned `@nestjs/authentication` scrypt implementation and returns only explicitly selected public fields. PostgreSQL enforces email uniqueness through an index on `lower(email)`, including concurrent requests.
 
 Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds the users table and role enum without altering the existing example table. Users persistence uses the existing `DATABASE_URL`. See the [users guide](docs/users.md) for input rules, return types, error handling and password costs.
 
@@ -137,13 +128,13 @@ Run `pnpm db:migrate` before using this feature. Migration `0001_users.sql` adds
 
 Administrators can list/search users with `GET /api/v1/users?limit=20&sort=createdAt&order=desc`, following `nextCursor` as `after`; `GET/PATCH/DELETE /api/v1/users/:id` requires `UsersPolicy.manage`. Sort columns are allowlisted (`createdAt`, `email`) with UUID tie-breaking. Only the separate admin update schema allows role changes, which take effect on the next authenticated request. Admin self-deletion/self-demotion through target-ID routes returns 409; deliberate self-deletion uses `/users/me`.
 
-Account deletion writes tombstones and hard-deletes the user in one user-locked transaction; existing FKs cascade families and hashed refresh tokens. Tombstones remain indefinitely after deletion. Subsequent bearer/refresh authentication fails even after restart. No PR-09 migration is needed. See [contracts, concurrency and retention tradeoffs](docs/users.md) and [PR-09 verification](docs/pr-09-verification.md).
+Account deletion writes tombstones and hard-deletes the user in one user-locked transaction; existing FKs cascade families and hashed refresh tokens. Tombstones remain indefinitely after deletion. Subsequent bearer/refresh authentication fails even after restart. See [contracts, concurrency and retention tradeoffs](docs/users.md).
 
 ## Authentication
 
 `POST /api/v1/auth/register` returns 201; `/login` and `/refresh` return 200 with only `{ accessToken, expiresIn }`; `/logout` returns 204. Auth mutations require an explicit trusted `Origin`. Keep the 15-minute access JWT in browser memory and send it as a bearer token. The rotating opaque refresh token lives only in the `__Host-refresh` HttpOnly/Secure/Lax cookie, with a seven-day absolute family limit.
 
-`GET /api/v1/auth/sessions?limit=20&after=<nextCursor>` lists only the authenticated user's login families. `DELETE /api/v1/auth/sessions/:id` revokes one owned session; `POST /api/v1/auth/logout-all` revokes all existing devices. Both mutations return 204 and require a trusted Origin plus bearer authentication. Listing uses public UUIDs, timestamps, active/expired/revoked status and a current flag from verified JWT context. New logins after logout-all are allowed; issued access JWTs may still work for up to 15 minutes. See [session administration](docs/authentication.md#session-administration) and [PR-07 verification](docs/pr-07-verification.md).
+`GET /api/v1/auth/sessions?limit=20&after=<nextCursor>` lists only the authenticated user's login families. `DELETE /api/v1/auth/sessions/:id` revokes one owned session; `POST /api/v1/auth/logout-all` revokes all existing devices. Both mutations return 204 and require a trusted Origin plus bearer authentication. Listing uses public UUIDs, timestamps, active/expired/revoked status and a current flag from verified JWT context. New logins after logout-all are allowed; issued access JWTs may still work for up to 15 minutes. See [session administration](docs/authentication.md#session-administration).
 
 Run `pnpm db:migrate` to add the auth tables before using these endpoints. The global authentication guard protects new routes by default and reloads the current user from PostgreSQL. The original starter routes remain intentionally public. PostgreSQL enforces one-time consumption and durable family revocation, including concurrent refresh/logout-all storage races. Access JWTs can remain usable until expiry after refresh revocation.
 
@@ -153,17 +144,17 @@ Use same-site HTTPS frontend/API deployments and `credentials: 'include'`. Cooki
 
 The official `@nestjs/authorization@0.1.0` global guard runs after authentication. Protected routes declare typed `@Can()` policies; a missing declaration denies access, including for administrators. Public starter/auth routes retain `@Public()`. Roles come from the database-loaded current user on each request, so changing a role affects the next request without replacing the JWT.
 
-Users and admins can manage their own profiles and sessions. Existing SQL owner predicates remain authoritative; admins do not gain access to another user's session-management routes. Administrative user endpoints explicitly require `UsersPolicy.manage`. See [policy conventions and endpoint guidance](docs/authorization.md) and [PR-09 verification](docs/pr-09-verification.md).
+Users and admins can manage their own profiles and sessions. Existing SQL owner predicates remain authoritative; admins do not gain access to another user's session-management routes. Administrative user endpoints explicitly require `UsersPolicy.manage`. See [policy conventions and endpoint guidance](docs/authorization.md).
 
 ## Security hardening
 
-`SecurityModule` registers `@nestjs/throttler` before the authentication guard: 100 requests/60s per IP per handler on business routes (health probes are exempt), an additional 5/60s (5-minute block) per IP for register/login/refresh/logout, and 3/60s per IP for password changes and admin mutations. Read-only routes, session administration, profile updates and self-deletion receive only the global limiter. Users behind one IP share budgets; submitted emails and bearer identities never change throttle keys. Throttling returns generic 429 responses with `X-RateLimit-*`/`Retry-After-*` headers before any scrypt work. `TRUST_PROXY` (default `false`) strictly validates proxy hops or IP/CIDR allowlists so forwarding headers cannot spoof throttling identity; JSON and URL-encoded bodies are capped at 16 KiB (`REQUEST_BODY_LIMIT_BYTES`) with 413 responses. Native security headers, CSRF, exact-origin credentialed CORS, the `__Host-refresh` cookie and no-store auth/users responses are unchanged. Limits are per-process in memory; multi-instance shared storage is documented, not bundled. See the [security guide](docs/security.md) and [PR-10 verification](docs/pr-10-verification.md).
+`SecurityModule` registers `@nestjs/throttler` before the authentication guard: 100 requests/60s per IP per handler on business routes (health probes are exempt), an additional 5/60s (5-minute block) per IP for register/login/refresh/logout, and 3/60s per IP for password changes and admin mutations. Read-only routes, session administration, profile updates and self-deletion receive only the global limiter. Users behind one IP share budgets; submitted emails and bearer identities never change throttle keys. Throttling returns generic 429 responses with `X-RateLimit-*`/`Retry-After-*` headers before any scrypt work. `TRUST_PROXY` (default `false`) strictly validates proxy hops or IP/CIDR allowlists so forwarding headers cannot spoof throttling identity; JSON and URL-encoded bodies are capped at 16 KiB (`REQUEST_BODY_LIMIT_BYTES`) with 413 responses. Native security headers, CSRF, exact-origin credentialed CORS, the `__Host-refresh` cookie and no-store auth/users responses are unchanged. Limits are per-process in memory; multi-instance shared storage is documented, not bundled. See the [security guide](docs/security.md).
 
 ## Health and lifecycle
 
 `GET /api/v1/health/live` returns 200 without accessing PostgreSQL. `GET /api/v1/health/ready` returns 200 when PostgreSQL answers within one second, or 503 on outage, timeout or shutdown. Both are public, retain security headers and skip rate limiting. Concurrent probes share bounded database work; readiness recovers without an application restart.
 
-SIGTERM disables readiness, gives routing five seconds to drain, then follows Nest's existing HTTP shutdown and Drizzle pool cleanup. Compose retains its 30-second outer stop deadline. Docker HEALTHCHECK uses readiness; database failure must not be used as a liveness restart trigger. See [health behavior, timeout limitations and Kubernetes examples](docs/health.md) and [PR-11 verification](docs/pr-11-verification.md).
+SIGTERM disables readiness, gives routing five seconds to drain, then follows Nest's existing HTTP shutdown and Drizzle pool cleanup. Compose retains its 30-second outer stop deadline. Docker HEALTHCHECK uses readiness; database failure must not be used as a liveness restart trigger. See [health behavior, timeout limitations and Kubernetes examples](docs/health.md).
 
 ## Observability
 
@@ -174,7 +165,7 @@ Logs are one JSON object per line (Nest's JSON format plus `service`, `requestId
 - **Unexpected errors:** they keep the generic 500 body and produce one sanitized error log, one span exception and, when `SENTRY_DSN` is set, one privacy-scrubbed Sentry event. 4xx outcomes are never reported.
 - **OpenTelemetry:** with `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT`, the API exports route-named HTTP server spans with PostgreSQL child spans (no parameter values) and a bounded `http.server.request.duration` histogram over OTLP/HTTP. W3C context propagates, and sampling defaults to 10%. Telemetry is flushed once, with a bound, at shutdown.
 
-Neither SDK loads, and no connection is opened, when telemetry is disabled. A missing or unreachable collector never affects startup or requests. See the [observability guide](docs/observability.md) and [PR-12 verification](docs/pr-12-verification.md).
+Neither SDK loads, and no connection is opened, when telemetry is disabled. A missing or unreachable collector never affects startup or requests. See the [observability guide](docs/observability.md).
 
 ## Docker and CI
 
@@ -193,7 +184,7 @@ The API responds at `http://localhost:3000/api/v1`. Compose uses production mode
 
 The multi-stage image uses Node 24.21.0, runs as a non-root user and contains production dependencies plus compiled ESM output. Migration tooling has a separate build target. See [Docker and CI instructions](docs/docker-ci.md) for environment settings, deployment migrations, persistent data, shutdown and branch protection setup.
 
-GitHub Actions runs install, lint, format, typecheck, unit/integration coverage, dedicated E2E, dependency audits, build/source-map verification and a Docker Compose smoke test on PRs and pushes to `main`. Test suites run sequentially. Dependabot proposes weekly dependency/action/image updates without automatic merging. Required check: **Verify** from workflow **CI**; configure protection after its first successful GitHub run.
+GitHub Actions runs install, lint, format, typecheck, unit/integration coverage, dedicated E2E, dependency audits, build/source-map verification and a Docker Compose smoke test on PRs and pushes to `main`. Test suites run sequentially. Dependabot proposes weekly dependency/action/image updates without automatic merging. Required check: **Verify** from workflow **CI**; see the [required-check guidance](docs/docker-ci.md#branch-protection--required-checks).
 
 ## Git conventions
 
@@ -206,27 +197,29 @@ echo 'feat: add example' | pnpm exec commitlint
 echo 'invalid message' | pnpm exec commitlint # must exit nonzero
 ```
 
-## Architecture and roadmap
+## Documentation
 
-- [Implementation plan](NESTJS_STARTER_IMPLEMENTATION_PLAN.md)
-- [Agent/contribution rules](AGENTS.md)
-- [PR-00 compatibility evidence](docs/pr-00-compatibility.md)
-- [PR-01 verification results](docs/pr-01-verification.md)
-- [PR-02 verification results](docs/pr-02-verification.md)
-- [Database and migration guide](docs/database.md)
-- [PR-03 verification results](docs/pr-03-verification.md)
-- [PR-04 verification results](docs/pr-04-verification.md)
-- [Users persistence and password utilities](docs/users.md)
-- [PR-05 verification results](docs/pr-05-verification.md)
-- [Authentication and refresh storage](docs/authentication.md)
-- [PR-06 verification results](docs/pr-06-verification.md)
-- [Browser auth transport](docs/adr/001-auth-transport.md)
-- [Bearer session model](docs/adr/002-auth-session-model.md)
-- [Security hardening guide](docs/security.md)
-- [PR-10 verification results](docs/pr-10-verification.md)
-- [Health and lifecycle](docs/health.md)
-- [PR-11 verification results](docs/pr-11-verification.md)
-- [Observability guide](docs/observability.md)
-- [PR-12 verification results](docs/pr-12-verification.md)
+### Architecture and development
 
-Next milestone: **independent final review and explicit release authorization**. See the [release-readiness audit, gates and deployment/rollback checklist](docs/release-readiness.md) and [PR-13 verification](docs/pr-13-verification.md). `package.json` already declares private version `1.0.0`; no `v1.0.0` Git tag, GitHub release, publication, merge or deployment is authorized by this milestone. Optional extensions remain opt-in.
+- [Engineering and contribution guidance](AGENTS.md)
+- [Database, migrations and schema organization](docs/database.md)
+- [Browser auth transport decision](docs/adr/001-auth-transport.md)
+- [Bearer session model decision](docs/adr/002-auth-session-model.md)
+
+### API and security
+
+- [Authentication, browser lifecycle and refresh storage](docs/authentication.md)
+- [Authorization policies and ownership](docs/authorization.md)
+- [Users API, persistence and password costs](docs/users.md)
+- [Security controls and limitations](docs/security.md)
+
+### Operations and verification
+
+- [Health and shutdown lifecycle](docs/health.md)
+- [Observability and internal source-map debugging](docs/observability.md)
+- [Docker, CI and required checks](docs/docker-ci.md)
+- [Release gates, security audit exceptions and deployment/rollback](docs/release-readiness.md)
+
+Historical implementation plans, verification reports and the compatibility probe
+remain available through Git history and the published `v1.0.0` tag. Optional
+extensions remain opt-in.

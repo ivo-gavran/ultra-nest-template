@@ -1,6 +1,6 @@
 # Authorization and ownership
 
-PR-08 integrates the PR-00-verified `@nestjs/authorization@0.1.0`. It uses the package's public `AuthorizationModule`, `@Policy()` and `@Can()` APIs, default user resolution and global guard. There is no custom guard, permission database or general policy engine.
+Authorization uses the pinned `@nestjs/authorization@0.1.0`. It uses the package's public `AuthorizationModule`, `@Policy()` and `@Can()` APIs, default user resolution and global guard. There is no custom guard, permission database or general policy engine.
 
 ## Guard order and defaults
 
@@ -27,7 +27,7 @@ Authentication verifies the bearer JWT and loads the current user from PostgreSQ
 | `UsersPolicy.deleteSelf`        | Denied | Allowed | Allowed | Transactional deletion of authenticated user only        |
 | `UsersPolicy.manage`            | Denied | Denied  | Allowed | Only operations explicitly declaring this ability        |
 
-Unknown roles fail closed. PR-09 maps the four self abilities to `/users/me` and `/users/me/password`; every `/users` list and `/users/:id` operation explicitly declares `manage`. Ordinary self-access does not imply permission to read an arbitrary user's record. Session permissions do not give administrators access to other users' sessions.
+Unknown roles fail closed. UsersController maps the four self abilities to `/users/me` and `/users/me/password`; every `/users` list and `/users/:id` operation explicitly declares `manage`. Ordinary self-access does not imply permission to read an arbitrary user's record. Session permissions do not give administrators access to other users' sessions.
 
 ## Protecting a new endpoint
 
@@ -55,8 +55,8 @@ The guard does not replace these predicates. Do not remove them after adding `@C
 
 ## Validation and package evidence
 
-The installed package's public exports, `Can`/`Policy` declarations, `Ability` argument types, default user resolution, guard and module registration were inspected before implementation. Its guard grants only explicit literal-true policy decisions, maps denials to native transport errors, recognizes authentication's `@Public()` and denies missing declarations. These behaviors match the [official authorization guide](https://docs.nestjs.com/security/authorization) and PR-00 spike.
+The installed package's public exports, `Can`/`Policy` declarations, `Ability` argument types, default user resolution, guard and module registration were inspected before implementation. Its guard grants only explicit literal-true policy decisions, maps denials to native transport errors, recognizes authentication's `@Public()` and denies missing declarations. These behaviors match the [official authorization guide](https://docs.nestjs.com/security/authorization) and the application tests.
 
 Policy unit tests cover guest, user, admin and unexpected roles. HTTP tests use real bearer flows and migrated PostgreSQL, with a test-only admin/undeclared controller. Public authorization denial events prove invalid credentials stop before authorization and authenticated denials see a real principal; tests capture decision metadata only. Never log entire authorization events: they can contain users and policy arguments. No production event logging was added in this milestone.
 
-Run `pnpm test`, then `pnpm test:integration`; these commands share a generated test directory and must run sequentially. Existing authentication, session cookie association, CSRF/CORS, storage concurrency and migration tests remain enabled. Production Swagger's exact path assertions keep test fixture endpoints out of the application contract. See [PR-08 verification](pr-08-verification.md) and [PR-09 verification](pr-09-verification.md) for executed results.
+Run `pnpm test`, then `pnpm test:integration`; these commands share a generated test directory and must run sequentially. Existing authentication, session cookie association, CSRF/CORS, storage concurrency and migration tests remain enabled. Production Swagger's exact path assertions keep test fixture endpoints out of the application contract.

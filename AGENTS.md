@@ -1,59 +1,126 @@
 # AGENTS.md — NestJS Starter
 
 ## Mission
-Build and maintain a production-ready, reusable NestJS REST starter. Keep it simple, secure, idiomatic and testable. Follow `NESTJS_STARTER_IMPLEMENTATION_PLAN.md` in incremental PR-sized steps. Do not implement the entire plan in one pass.
 
-## Stack and constraints
-- Node.js 24 LTS, pnpm, NestJS 12.1+, strict TypeScript.
-- PostgreSQL + Drizzle ORM/Kit; prefer official `@nestjs/drizzle` when compatible.
-- Use Zod 4.2+ for environment and API validation; global `StandardSchemaValidationPipe`; explicit schemas on Nest request decorators. No `class-validator` DTOs.
-- Prefer official `@nestjs/authentication` and `@nestjs/authorization`. Verify exported interfaces and installed package APIs before use.
-- Use feature-based modular-monolith structure. Avoid speculative abstractions, generic BaseRepository, microservices, CQRS frameworks and extra infrastructure.
-- Optional extensions must not be imported/installed by the core app by default.
+Maintain the released, reusable NestJS REST starter. Keep changes simple, secure,
+idiomatic and testable, with a focused scope and explicit acceptance criteria.
+Preserve the existing application behavior unless the task authorizes a change.
+
+## Stack and development conventions
+
+- Use the pinned Node.js 24 LTS, pnpm, NestJS and strict TypeScript toolchain.
+  Keep exact versions and the committed lockfile consistent; dependency upgrades
+  belong in separately scoped changes.
+- Prefer TypeScript for new code and tooling when the pinned tool supports it
+  cleanly. Avoid extra loaders or dependencies solely for configuration files.
+  Existing JavaScript tooling need not be converted as part of unrelated work.
+- Use PostgreSQL, Drizzle ORM/Kit and the official `@nestjs/drizzle` integration.
+  Inspect installed APIs and official documentation before changing integrations.
+- Use Zod for environment and API validation, the global
+  `StandardSchemaValidationPipe` and explicit schemas on Nest request decorators.
+  Derive request types with `z.infer`; do not add `class-validator` DTOs.
+- Prefer official Nest capabilities and minimal dependencies. Avoid speculative
+  abstractions, generic BaseRepository, microservices, CQRS frameworks and extra
+  infrastructure. Optional extensions remain opt-in and are not installed or
+  imported by the core app by default.
 
 ## Architecture conventions
-- Controllers handle transport; services implement workflows and business invariants; repositories encapsulate complex DB access when helpful.
-- Prefer explicit typed interfaces and Zod-derived types over duplicate DTO/domain declarations.
-- Drizzle migrations are version-controlled. Never auto-`push` schema to a production DB on startup.
-- HTTP API errors should not expose internal exception details.
-- Authorization is deny-by-default. `AuthenticationModule` must be registered before `AuthorizationModule` to preserve global guard order.
-- Never authorize using user IDs from client bodies where identity must come from authenticated context.
 
-## Security rules
-- Never print or commit secrets, passwords, password hashes, access tokens, refresh tokens or user PII in logs/traces.
-- Use the authentication package's scrypt password hasher and production-backed storage contracts. Use atomic one-time refresh consumption and test concurrency/races.
-- For browsers, refresh token transport via HttpOnly/Secure cookie is an application-level adapter; inspect the documented API and test cookie attributes, CSRF, CORS and refresh replay.
-- Access JWTs can remain valid until expiry after refresh-token revocation; document this limitation.
-- Use strict input validation where unknown fields must be rejected. Reject account role/self-promotion attempts.
-- Use DB constraints, not only pre-checks, for email uniqueness and referential integrity.
+- Preserve the existing feature-based modular-monolith folder organization.
+  Features live under `src/modules/`; database schemas and DI belong under
+  `src/database/`, with version-controlled SQL under `migrations/`.
+- `src/config/` owns environment schemas, validation and configuration loading.
+  Application initialization and HTTP setup belong to the bootstrap layer:
+  `src/main.ts`, `src/bootstrap.ts` and `src/configure-application.ts`. Preserve
+  telemetry initialization before dynamic application imports.
+- Controllers handle transport; services implement workflows and business
+  invariants; repositories encapsulate complex database access when helpful.
+  Prefer explicit typed interfaces and Zod-derived types over duplicate models.
+- Use typed validated configuration rather than reparsing raw environment values.
+  Keep Swagger schemas consistent with request validation and safe responses.
+- Never auto-push or auto-migrate a production database on application startup.
+  Review generated SQL and commit migration metadata together. Do not edit
+  already-applied migrations; review upgrade, locking and rollback implications.
+- Keep HTTP errors generic and free of internal exception details, SQL and values.
 
-## Required workflow for each task
-1. Inspect repository, installed dependencies and relevant tests.
-2. Confirm requested PR scope, dependencies and acceptance criteria in the plan.
-3. If an external API/package behavior is uncertain, inspect actual typings and official documentation; report discrepancy rather than guessing.
-4. Implement minimal cohesive change and appropriate tests; favor reproducible/isolated test data.
-5. Run available checks (`pnpm lint`, `pnpm typecheck`, relevant tests, `pnpm build`) and report exact results.
-6. Review diff for auth bypass, security issues, migration hazards, accidental dependency additions and unrelated changes.
-7. Summarize changes, file paths, commands run, blockers and next milestone.
+## Authentication, authorization and security
 
-## Test strategy
-- Jest unit tests: policy decisions and business logic, with focused mocks.
-- Integration tests: real PostgreSQL via Testcontainers; execute actual migrations; verify constraints/transactions.
-- E2E: Supertest against initialized Nest app for auth, RBAC, users, errors, health and security.
-- Run `@nestjs/authentication/testing` store contracts with concurrency enabled against PostgreSQL.
-- Write regression tests before or alongside fixes. Avoid arbitrary delays and timing-dependent tests when synchronization controls are possible.
+- Use the official `@nestjs/authentication` and `@nestjs/authorization` public
+  contracts. Verify exported interfaces and installed package behavior before use.
+- Authorization is deny-by-default. Register `AuthenticationModule` before
+  `AuthorizationModule` to preserve global guard order. Keep the security/rate
+  guard before authentication. Declare explicit policies on protected routes and
+  `@Public()` only on deliberately public routes.
+- Identity comes from verified authenticated context, never client body IDs,
+  cookie association or unverified claims. Roles come from the current database
+  user. Enforce ownership in database predicates and reject role/self-promotion
+  attempts with strict inputs.
+- Use the package's scrypt hasher and PostgreSQL-backed storage contracts.
+  Refresh consumption is atomic and one-time; durable family tombstones must
+  prevent replay and later successor insertion from restoring a revoked login.
+  Preserve user-row-first transaction locking and verified-password checks.
+- Browser refresh transport is an application adapter. Preserve HttpOnly/Secure
+  cookies, exact trusted Origin checks, native CSRF and credentialed CORS.
+  Test cookie scope, expiry, clearing, association and refresh replay.
+- Access JWTs can remain valid until expiry after refresh revocation. Document
+  that limitation and retention/capacity constraints; do not weaken replay rules.
+- Never print or commit secrets, passwords, password hashes, tokens or user PII
+  in logs/traces. Keep response projections explicit and telemetry sanitized.
+- Enforce email uniqueness and referential integrity with database constraints.
+  Preserve validated proxy trust, body caps and default rate budgets. Multi-replica
+  deployments need a reviewed shared limiter; the default limiter is per process.
+
+## Required workflow
+
+1. Inspect the repository, pinned dependencies, relevant documentation and tests.
+2. Confirm the task's scope, dependencies and acceptance criteria. Implement one
+   minimal cohesive change without speculative future work.
+3. Inspect actual typings and official documentation for uncertain package APIs;
+   report discrepancies instead of guessing.
+4. Write appropriate regression tests before or alongside behavior changes.
+   Use isolated, reproducible test data and synchronization instead of delays.
+5. Run lint, format checks, typecheck, relevant tests and build; report exact
+   results and any environment blockers. Run the full CI gates for release work.
+6. Review the diff for auth bypass, sensitive data, migration hazards, dependency
+   additions, runtime changes and unrelated edits.
+7. Update README/environment/guides for behavior changes and summarize file paths,
+   commands, results and remaining limitations.
+
+## Testing and CI
+
+- Jest unit tests cover policy decisions and business logic with focused mocks.
+- Integration tests use real PostgreSQL through Testcontainers, actual migrations,
+  constraints, transactions, pooled-connection races and restart persistence.
+- E2E initializes Nest and exercises real loopback HTTP with the existing native
+  fetch convention. Cover auth, RBAC, users, errors, health and security.
+- Run every `@nestjs/authentication/testing` refresh-store contract with concurrency
+  enabled against PostgreSQL. In-memory tests cannot establish production safety.
+- Run `test`, `test:integration`, `test:e2e` and `test:cov` sequentially because each
+  rebuilds `.test-dist`. CI runs unit + integration once through `test:cov`, then
+  `test:e2e`. Preserve scoped coverage thresholds and the Jest ESM preload.
+- Release E2E retains production scrypt, default rate budgets, real migrations and
+  security modules. Test-only controllers/bootstraps stay under `test/`, never
+  behind production environment flags.
+- Keep CI's frozen install, lint, formatting, types, coverage, E2E, audits,
+  `pnpm build`, `pnpm verify:build` and `scripts/verify-compose.sh` gates enabled.
+  Record reviewed audit exceptions with exposure and review dates in
+  `docs/release-readiness.md`. Docker/build/runtime changes need Docker smoke.
 
 ## Git and change control
-- Conventional Commits required, e.g. `feat(auth): rotate refresh tokens`.
-- Run formatter/ESLint on staged files through Lefthook, Commitlint on commit-msg; full checks in CI.
-- Do not force-push, merge, change branch protection, delete user files, modify production secrets or deploy without explicit request.
-- When blocked, stop at a safe state and explain the smallest actionable blocker.
+
+- Use feature branches and Conventional Commits, such as
+  `feat(auth): rotate refresh tokens`.
+- Lefthook checks staged file paths with ESLint/Prettier on pre-commit and
+  Commitlint on commit-msg; full checks run in CI. Format/fix and stage explicitly.
+- Do not force-push, merge, publish, tag, create releases, deploy, change repository
+  settings/branch protection, delete user files or modify production secrets
+  without explicit authorization. A cleanup request authorizes only its scoped
+  historical-artifact removals.
+- Follow the deployment and rollback runbook in `docs/release-readiness.md` for
+  separately authorized releases/deployments; passing checks is not authorization.
+- When blocked, leave a safe state and explain the smallest actionable blocker.
 
 ## Done means
-Acceptance criteria met; tests and types checked; README/env/docs updated for behavior changes; no secrets introduced; no speculative future work accidentally merged into core.
 
-## Release gates (PR-13)
-- Run `test`, `test:integration`, `test:e2e` and `test:cov` sequentially: each rebuilds `.test-dist`. CI uses `test:cov` for unit + integration once, then `test:e2e`.
-- Release E2E must preserve production scrypt, default rate budgets, real PostgreSQL/migrations and security modules. Keep test-only controllers/bootstraps under `test/`, never behind production environment flags.
-- Review dependency audits, scoped coverage thresholds, `pnpm verify:build` and `scripts/verify-compose.sh`; keep reviewed audit exceptions with exposure and review dates in `docs/release-readiness.md`.
-- This milestone prepares a release candidate only. Merging, publishing, deploying, creating a GitHub release or creating/pushing `v1.0.0` requires separate explicit authorization after independent final review.
+Acceptance criteria met; tests, types and applicable CI gates checked; current
+behavior documented; no secrets, unrelated changes or speculative core additions.

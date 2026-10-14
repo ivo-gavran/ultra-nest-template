@@ -23,7 +23,7 @@ Then set the exact frontend/API origins for your deployment. Production requires
 
 Access JWTs have a **15-minute** lifetime and `typ=at+jwt`. Opaque refresh tokens have a **7-day TTL and 7-day absolute family lifetime**. These explicit defaults live in `auth.options.ts`; rotation never extends the family deadline. Password costs and normalization remain as documented in [users persistence](users.md).
 
-## Rate limiting (PR-10)
+## Rate limiting
 
 Register/login/refresh/logout are throttled before credential or scrypt work: 5 requests per 60 s per IP per handler, then a 5-minute block, in addition to the global 100/60 s per-IP, per-handler limit. Submitted emails and bearer identities do not affect throttle keys; rotating email addresses cannot bypass the IP budget. Existing and nonexistent accounts are limited consistently. Session listing, targeted revoke and logout-all receive only global protection. Clients behind the same IP share budgets; limits are in-memory per process. See [security](security.md) for configuration (`RATE_LIMIT_*`, `TRUST_PROXY`, `REQUEST_BODY_LIMIT_BYTES`), proxy requirements and multi-instance storage.
 
@@ -98,13 +98,13 @@ Targeted revocation uses one `INSERT … SELECT … WHERE user_id = authenticate
 
 Logout-all delegates to public `TokenService.revokeAll(authenticatedUser.id)` and clears the refresh cookie. It preserves the user-row lock ordering described above: a new login ordered after logout-all can survive, while any successor of an earlier family stays revoked. Targeted revocation also covers successors saved before or after the tombstone. A concurrent refresh may already have returned an access JWT when revocation commits. **Existing access JWTs, including those used for session administration, can remain valid for up to 15 minutes.** Deleted accounts are rejected on the next bearer lookup. Logout-all is not an account lockout.
 
-All session responses, including authentication, validation, CSRF and storage errors, use `Cache-Control: no-store`. The mutations keep native CSRF checks and exact trusted-Origin enforcement. Cookie deletion uses the same HttpOnly/Secure/SameSite=Lax/Path=/ scope with no Domain. Database failures return a generic 503 without clearing a retryable cookie or logging SQL parameters. No schema migration or new environment setting is required for PR-07. Existing same-site browser and retention limitations still apply.
+All session responses, including authentication, validation, CSRF and storage errors, use `Cache-Control: no-store`. The mutations keep native CSRF checks and exact trusted-Origin enforcement. Cookie deletion uses the same HttpOnly/Secure/SameSite=Lax/Path=/ scope with no Domain. Database failures return a generic 503 without clearing a retryable cookie or logging SQL parameters. Existing same-site browser and retention limitations still apply.
 
-Evidence: public declarations `decorators/current-session.decorator.d.ts` and `jwt/jwt-bearer.provider.d.ts` in installed `@nestjs/authentication@0.1.1`, checked against the [official authentication guide](https://docs.nestjs.com/security/authentication). See [PR-07 verification](pr-07-verification.md) for HTTP, database and concurrency results.
+Evidence: public declarations `decorators/current-session.decorator.d.ts` and `jwt/jwt-bearer.provider.d.ts` in installed `@nestjs/authentication@0.1.1`, checked against the [official authentication guide](https://docs.nestjs.com/security/authentication).
 
 ## Retention and operational limits
 
-PR-09 account workflows live in UsersModule. Password change verifies the current password through `PasswordsService`, then compares the verified hash under the user lock and commits the replacement and other-family tombstones in one transaction. Only an owned usable family established from the verified bearer sid is preserved; otherwise all are revoked. The endpoint leaves the browser cookie untouched, including bearer/cookie mismatches. Current-family rotation/replay detection remains unchanged, and already-issued access JWTs may still work until expiry.
+Account workflows live in UsersModule. Password change verifies the current password through `PasswordsService`, then compares the verified hash under the user lock and commits the replacement and other-family tombstones in one transaction. Only an owned usable family established from the verified bearer sid is preserved; otherwise all are revoked. The endpoint leaves the browser cookie untouched, including bearer/cookie mismatches. Current-family rotation/replay detection remains unchanged, and already-issued access JWTs may still work until expiry.
 
 To close stale-password login races, AuthService carries the verified credential hash through a request-local `AsyncLocalStorage` precondition on its store while calling public `TokenService.issue`. The store checks that hash against the locked user row before saving. No hash enters token claims or logs. A first login saved before password change is revoked with the other existing families; one verified with the old hash but ordered after the change fails 401. Registration reuses this verified-login path. Future password-login adapters must use the same precondition rather than call `TokenService.issue` directly.
 
@@ -112,7 +112,7 @@ Account deletion writes all owned family tombstones before hard-deleting the use
 
 Keep spent tokens and tombstones through the absolute family deadline so replay detection remains effective. A failed/interrupted rotation can leave an unreturned successor; do not infer delivery from an unspent row. There is no automatic cleanup during startup or refresh and no scheduler in core. Operators should run a reviewed, bounded maintenance job outside request handling; a conservative policy is to retain known families until **7 days after** their deadline, then remove those families (cascading tokens) and only their corresponding tombstones in a transaction. Select a limited batch of known family IDs, lock rows consistently with the user-first order, and delete tombstones only for that batch. Never age out an unknown-family tombstone by timestamp alone: its safe expiry bound is unknown. **Account-deletion tombstones are retained indefinitely**, since cascades remove their family's deadline; changing this requires an explicit safe operator retention policy.
 
-Without that maintenance process, auth tables grow. Monitor volume and clock synchronization; budget scrypt memory/threadpool capacity. General rate limiting and abuse controls landed in PR-10 (see [security](security.md)); the starter is not yet the final public-production release. Registration's user insert and token issue are separate operations: if token storage fails after user creation, the user remains persisted and can retry via login. No misleading rollback or success is reported.
+Without that maintenance process, auth tables grow. Monitor volume and clock synchronization; budget scrypt memory/threadpool capacity. General rate limiting and abuse controls are described in the [security guide](security.md). Registration's user insert and token issue are separate operations: if token storage fails after user creation, the user remains persisted and can retry via login. No misleading rollback or success is reported.
 
 ## Tests
 
@@ -132,6 +132,6 @@ node .test-dist/test/manual/auth-browser.js
 # Open the printed localhost URL, click Run browser verification, then Ctrl-C.
 ```
 
-This checks credentialed registration/login, access-only JSON, HttpOnly visibility, automatic Secure-cookie sending/replacement, protected bearer access, no-store and cookie deletion. The fixture is excluded from production output. CI runs the HTTP/security/contracts/Compose suites; the interactive browser check is manual. See [PR-06 verification](pr-06-verification.md) for executed evidence and browser/platform limits.
+This checks credentialed registration/login, access-only JSON, HttpOnly visibility, automatic Secure-cookie sending/replacement, protected bearer access, no-store and cookie deletion. The fixture is excluded from production output. CI runs the HTTP/security/contracts/Compose suites; the interactive browser check is manual.
 
 References: [ADR-001](adr/001-auth-transport.md), [ADR-002](adr/002-auth-session-model.md), [official Nest authentication](https://docs.nestjs.com/security/authentication), [native CSRF](https://docs.nestjs.com/security/csrf), and the pinned package's installed public declarations/source.

@@ -1,22 +1,21 @@
 # Security
 
-PR-10 hardens the HTTP edge without replacing the native NestJS 12 security
-controls. Authentication, authorization, CSRF, CORS, the `__Host-refresh`
-cookie, PostgreSQL refresh rotation and guard order are unchanged; this page
-documents what was added and the operational limits that remain.
+The HTTP edge uses native NestJS 12 security controls alongside rate limiting,
+validated proxy trust and body caps. This guide describes those controls and
+their operational limits.
 
-## Gap summary
+## Security controls
 
-Already present before PR-10: `app.useSecurityHeaders()`, native CSRF
+The application enables `app.useSecurityHeaders()`, native CSRF
 protection, exact-origin credentialed CORS, `BrowserOriginGuard`, secure
 cookie flags, `Cache-Control: no-store` on auth/users, generic auth errors,
 sanitized database errors, deny-by-default authorization with
 AuthenticationModule registered before AuthorizationModule, and Swagger
 disabled by default in production.
 
-Added by PR-10: global and stricter rate limiting (`@nestjs/throttler`),
-validated reverse-proxy trust, explicit request body caps, and this
-documentation. No new migration, no Redis, no custom throttling framework.
+The edge also enforces global and stricter rate limiting (`@nestjs/throttler`),
+validated reverse-proxy trust and explicit request body caps. No Redis or custom
+throttling framework is required.
 
 ## Rate limiting
 
@@ -144,7 +143,7 @@ these parsers).
 - CORS: exact `AUTH_TRUSTED_ORIGINS`, credentials on, methods
   GET/POST/PATCH/DELETE/OPTIONS; wildcards with credentials are impossible
   because origins are validated exact HTTPS (loopback HTTP in dev only).
-  PR-12 adds `X-Request-ID` to the allowed and exposed headers only.
+  Request correlation adds `X-Request-ID` to the allowed and exposed headers only.
 - `BrowserOriginGuard` still rejects missing/foreign `Origin` on mutations.
 - `__Host-refresh` keeps HttpOnly/Secure/SameSite=Lax/Path=/ with no Domain.
 - Auth and users responses keep `Cache-Control: no-store`.
@@ -158,7 +157,7 @@ errors are mapped to generic messages at service/repository boundaries;
 public errors never contain SQL, parameters, causes or stack traces.
 Throttler keys are SHA-256 hashed by the guard and never logged.
 
-PR-12 adds the following, all allowlist-based (see the
+Observability provides the following, all allowlist-based (see the
 [observability guide](observability.md)):
 
 - One `http.request.completed`/`aborted` log per request (method, route
@@ -191,7 +190,7 @@ the guard phase, **before** any hashing/verification, limiting accepted
 derivations per client per window. This is not a concurrency semaphore. Registration performs one hash (`UsersService.create`)
 followed by one verification (the login path); the duplicate hash was
 reviewed and kept: registration intentionally reuses the verified-login path
-so the PR-09 stale-password precondition (`withVerifiedPassword`, user-row
+so the stale-password precondition (`withVerifiedPassword`, user-row
 lock ordering, compare of the verified hash under lock) protects the first
 token issue exactly like a login. Removing the verify would either bypass
 that credential-version check or require a new internal issue path — not
@@ -213,8 +212,6 @@ headroom, and consider lower per-IP auth limits behind shared NATs.
   in `docs/authentication.md`); enumeration-resistant registration UX is out
   of scope.
 - No WAF/TLS termination in core; deploy behind a TLS-terminating proxy.
-
-See [PR-10 verification](pr-10-verification.md) for executed evidence.
 
 ## Health probe exemption
 
