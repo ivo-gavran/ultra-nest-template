@@ -15,6 +15,7 @@ export default defineConfig(
     files: [
       'src/**/*.ts',
       'test/**/*.ts',
+      'scripts/**/*.ts',
       'drizzle.config.ts',
       'commitlint.config.ts',
       'prettier.config.ts',

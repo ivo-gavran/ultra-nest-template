@@ -48,6 +48,12 @@ docker compose down
 
 `docker compose down --volumes` deliberately deletes that project's local database. Do not use it on data you intend to keep.
 
+## Multiple local applications
+
+Compose derives its project name from the directory containing `compose.yaml`; its containers, network and `postgres_data` volume are scoped to that project. There are no custom container names, global volume names or fixed top-level project name. Initialization preserves this behavior. Use distinct directory names, or explicitly select a unique project with `docker compose -p my-awesome-api ...` / `COMPOSE_PROJECT_NAME`. See [Compose project naming](https://docs.docker.com/compose/how-tos/project-name/).
+
+Set a different `API_PORT` in each application's `.env` (for example 3000 and 3001); project naming does not isolate published host ports. Use the same project selector for all `up`, `run`, `exec` and `down` commands. PostgreSQL has no published host port, and separate Compose volumes can each retain the default internal role/database `app`. For host-run applications, set distinct `PORT` and `DATABASE_URL` values and provision separate databases as needed. Keep each application's credentials and trusted frontend origins separate; never share signing keys.
+
 ## Explicit migrations
 
 Startup never migrates the database. Before starting a fresh API (and before code requiring a new schema), run:
@@ -90,6 +96,7 @@ The `Verify` job executes, in order:
 7. `pnpm audit --audit-level=high` and `pnpm audit --prod --audit-level=moderate`
 8. `pnpm build` and `pnpm verify:build`
 9. `bash scripts/verify-compose.sh`
+10. `pnpm verify:template` (frozen install, initialization/repeat, lint, formatting, types, unit + integration coverage, E2E, build/artifact verification and Compose smoke in a temporary `harbor-orders-api` copy; cleaned on success or failure)
 
 Vitest suites run sequentially with isolated forks; unit/integration startup tests share the scoped `.test-process-dist` build. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
 
