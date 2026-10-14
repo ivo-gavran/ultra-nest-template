@@ -2,7 +2,35 @@
 
 A modular NestJS REST starter, officially released as [**v1.0.0**](https://github.com/ivo-gavran/ultra-nest-template/releases/tag/v1.0.0). The package remains private for use as a repository template. The application exposes browser authentication and bearer-protected session administration under `/api/v1/auth`, and self-service/administrator account operations under `/api/v1/users`. Environment configuration is validated before startup. Authorization denies undeclared routes by default. Global and stricter auth rate limiting, validated proxy trust and request body caps are enforced at the HTTP edge; see the [security guide](docs/security.md).
 
-## Requirements and installation
+## Create a new application
+
+Use this repository as a **GitHub template** to start an independently named application with the existing production-oriented baseline.
+
+1. Click **Use this template → Create a new repository** on GitHub, choose an owner and repository name, then clone **your new repository**.
+2. Use the pinned Node and pnpm versions below, then initialize its identity:
+
+   ```sh
+   git clone https://github.com/YOUR-OWNER/my-awesome-api.git
+   cd my-awesome-api
+   pnpm install --frozen-lockfile
+   pnpm setup:project my-awesome-api
+   pnpm hooks:install
+   cp .env.example .env # First setup only
+   ```
+
+3. Set PostgreSQL credentials and `DATABASE_URL`, generate a new authentication signing key, and configure exact trusted frontend origins in your untracked `.env`.
+4. Create the matching local PostgreSQL database, run `pnpm db:migrate`, then `pnpm start:dev`. For an isolated container database, follow the [Compose workflow](docs/docker-ci.md#local-compose-setup), which applies migrations explicitly.
+5. Commit the initialized files, including `.project-setup.json`, in your new repository.
+
+The [template usage guide](docs/template-usage.md) lists every automatic edit, validation rules, safe repeated execution, manual security/deployment setup, and GitHub metadata recommendations. Initialization never creates secrets or changes API routes, security controls, database schemas, migrations or dependencies. The original template works without initialization.
+
+The owner must enable **Settings → General → Template repository** once for GitHub to offer **Use this template**. This is a manual repository setting; see [GitHub's instructions](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-template-repository). Generated repositories need their own settings, branch protection, secrets and deployment configuration.
+
+## Developing Ultra Nest Template itself
+
+Contributors and maintainers clone the upstream repository and keep its identity; **do not run `setup:project` in the template checkout**. Use the following installation workflow, then the development and verification commands below.
+
+### Requirements and installation
 
 - Node **24.21.0 LTS**, pinned in `.nvmrc`.
 - pnpm **10.33.0**, pinned through `packageManager`.
@@ -93,6 +121,7 @@ pnpm test:e2e         # Docker; production security defaults
 pnpm test:cov         # Unit + integration coverage; Docker required
 pnpm build
 pnpm verify:build
+pnpm verify:template # Full gates + Docker in a temporary renamed copy
 ```
 
 Use `pnpm format` to format code, tooling and documentation. `prettier.config.ts` preserves single quotes and trailing commas; `commitlint.config.ts` extends the Conventional Commits rules. Both configurations are included in formatting, type-aware linting and type checks. The pinned Node supports native Prettier TypeScript configuration loading without flags; Commitlint uses its bundled TypeScript loader. No extra loader or dependency is required. Prefer TypeScript for future tooling when supported cleanly by the pinned toolchain.

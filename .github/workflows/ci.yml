@@ -46,3 +46,5 @@ jobs:
       - run: pnpm verify:build
       - name: Build and verify Docker Compose
         run: bash scripts/verify-compose.sh
+      - name: Verify an initialized template copy
+        run: pnpm verify:template

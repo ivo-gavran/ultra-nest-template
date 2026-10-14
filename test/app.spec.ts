@@ -104,6 +104,10 @@ describe('Application HTTP conventions', () => {
     const response = await fetch(`${url}/docs-json`);
     expect(response.status).toBe(200);
     const document = (await response.json()) as OpenAPIObject;
+    expect(document.info).toMatchObject({
+      title: 'Ultra Nest Template',
+      description: 'NestJS starter API',
+    });
     expect(Object.keys(document.paths).sort()).toEqual([
       '/api/v1',
       '/api/v1/auth/login',

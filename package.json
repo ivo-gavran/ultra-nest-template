@@ -25,7 +25,9 @@
     "test:cov": "vitest run --config vitest.coverage.config.ts --coverage",
     "verify:build": "node --enable-source-maps scripts/verify-build.js",
     "test:watch": "vitest --watch",
-    "build:test:manual": "tsc -p tsconfig.manual.json"
+    "build:test:manual": "tsc -p tsconfig.manual.json",
+    "setup:project": "node scripts/setup-project.ts",
+    "verify:template": "node scripts/verify-template.ts"
   },
   "dependencies": {
     "@nestjs/authentication": "0.1.1",
