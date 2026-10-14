@@ -14,6 +14,12 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "drizzle.config.ts"],
-  "exclude": ["node_modules", "dist", ".test-dist", "spikes"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "drizzle.config.ts",
+    "commitlint.config.ts",
+    "prettier.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".test-dist"]
 }

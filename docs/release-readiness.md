@@ -1,52 +1,34 @@
-# v1.0.0 release candidate
+# Release readiness and operations
 
-PR-13 is the final implementation milestone, **not release authorization**.
-Independent final review and a green final-head **CI / Verify** are required
-before a maintainer separately authorizes merging, publication, deployment,
-a GitHub release or the `v1.0.0` Git tag. This work performs none of those
-actions. The private `package.json` version is `1.0.0` so release-candidate
-metadata matches the intended first release; the package stays `"private": true`
-and is not published by this milestone. Creating or pushing the `v1.0.0` tag,
-a GitHub release, npm publication, merge or deployment remains a separate
-explicit authorization after independent final review.
+Ultra Nest Template **v1.0.0** is officially released. The private package is
+intended for reuse as a repository template. These gates and operational
+requirements apply to ongoing maintenance and future releases. Merging,
+publishing, tagging, creating a GitHub release or deploying requires separate
+explicit authorization after independent review of the exact commit.
 
-## Initial gap analysis (2026-10-13)
+## Security baseline and operational follow-up
 
-Audited the implementation plan, AGENTS, README/environment, manifest/lockfile,
-CI/Dependabot, Docker/Compose/smoke script, TypeScript/Jest/helpers, operational
-and historical docs, actual production modules and installed package APIs.
+The released starter uses the official PostgreSQL-backed `RefreshTokenStore`
+(all six methods, constructor registration, no production fallback), atomic
+one-time consumption, durable tombstones and user-first transaction locks.
+Concurrent store contracts exercise the real database. Password hashing uses
+production scrypt `ln=17,r=8,p=1` with a 16-byte salt and 32-byte derived key.
+Authentication runs before deny-by-default authorization; identity and roles
+come from the current database user. Owner-scoped SQL, strict Zod fields, unique
+email and composite owner FKs enforce database and transport invariants.
 
-1. **Verified existing capabilities:** official PostgreSQL-backed
-   `RefreshTokenStore` (all six methods, constructor registration, no production
-   fallback); conditional atomic consume; durable tombstones and user-first
-   transaction locks; official concurrent contracts; scrypt `ln=17,r=8,p=1`
-   (16-byte salt, 32-byte derived key); authentication before deny-by-default
-   authorization; current database user/role; owner-scoped SQL; strict Zod
-   fields; unique email/composite owner FKs; explicit migrations; secure
-   cookies/Origin/CSRF/CORS; default-off Swagger and proxy trust; pre-auth rate
-   limits; bounded readiness and graceful pool cleanup; optional, sanitized
-   telemetry and correlated errors. Existing integration and Docker tests
-   exercise these behaviors; PR-13 keeps the architecture intact.
-2. **Missing release requirements:** dedicated independently runnable E2E,
-   useful application coverage and thresholds, audit CI gates, build-map
-   verification, clean onboarding evidence, explicit deployment/rollback and
-   final-review checklist. PR-13 supplies these.
-3. **Security/correctness defects:** `OBSERVABILITY_SQL_PROBE=1` registered a
-   public SQL route in the production import graph. Removed the controller and
-   flag handling from `src/`; an isolated `test/fixtures` entry point retains
-   the embedded-literal privacy proof. Real production bootstrap and Docker
-   tests set the old flag and require 404. No schema/auth architecture rewrite
-   was warranted by the audit.
-4. **Documentation-only issues:** README still named PR-12 and put development
-   startup before database setup; Compose setup deferred migrations until after
-   API startup; coverage/E2E commands, source-map operations and rollback were
-   absent. Updated current guides; prior milestone reports remain historical.
-5. **Non-blocking post-v1 work:** reviewed refresh/tombstone retention tooling,
-   shared limiter for deployments with multiple replicas, scrypt capacity/load
-   testing per deployment, optional password reset/email verification/MFA,
-   last-admin recovery policy, image digest pinning and broader browser/platform
-   certification. None is silently installed into core. Two moderate tooling
-   audit exceptions are recorded below.
+Migrations are explicit. Secure cookies, Origin/CSRF/CORS, default-off Swagger
+and proxy trust, pre-auth rate limits, bounded readiness, graceful pool cleanup
+and optional sanitized telemetry remain required. Test-only controllers and
+bootstraps stay under `test/`; the former SQL probe cannot be enabled by a
+production environment flag.
+
+Reviewed follow-up work includes refresh/tombstone retention tooling, shared
+limiting for multiple replicas, deployment-specific scrypt capacity/load testing,
+optional password reset/email verification/MFA, last-admin recovery policy,
+image digest pinning and broader browser/platform certification. These remain
+explicit operational decisions or opt-in extensions. Two moderate tooling audit
+exceptions are recorded below.
 
 ## Dependency and install-script review
 
@@ -68,10 +50,9 @@ findings and production moderate-or-higher findings; lower findings remain
 visible for review. Audit registry failures fail the gate. Dependabot keeps its
 existing weekly reviewed updates, immutable action pins and no automatic merge.
 
-The unchanged `pnpm-workspace.yaml` permits build scripts only for
+The `pnpm-workspace.yaml` permits build scripts only for
 `@parcel/watcher` and `unrs-resolver` (development tooling), and explicitly
-blocks Nest donation/Scarf telemetry/Lefthook auto-install scripts. No new
-install-script approval, dependency, optional extension or registry was added.
+blocks Nest donation/Scarf telemetry/Lefthook auto-install scripts. Keep install-script approvals minimal and review any additions.
 Docker performs a separate frozen `--prod --no-optional` install. The smoke
 checks inspect its physical pnpm store as well as top-level packages: no Jest,
 TypeScript, Nest CLI, Drizzle Kit, esbuild, sprintf-js or Testcontainers. The
@@ -124,14 +105,14 @@ cases explicitly configure trusted loopback ingress. Cookies are transported as
 real HTTP headers; automatic browser cookie policy is covered by the existing
 manual browser fixture, not claimed by native fetch.
 
-| Required scenarios | Release E2E proof                                                                                                                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1–11               | Registration/login, bearer/guest, rotation/replay, persisted tombstone/restart, logout/repeated logout/revoked refresh, access still works then expires at original TTL                            |
-| 12–16, 20          | Public profile fields/update, role/ID/hash rejection, admin search/keyset pagination, guest/user/admin default-deny, foreign profile/session isolation, promotion/demotion with same JWT           |
-| 17–19              | Incorrect/correct old password, production PHC parameters, other families revoked/current retained, old/new credential login, deletion cascades/tombstones, all authentication fails after restart |
-| 21, 25–27          | Real 400/401/403/404/409/413/429/pg-error 500, default limiter plus proxy spoof/chain/invalid-IP tests, safe projections/errors/logs and correlation                                               |
-| 22–24              | Missing/null/foreign/lookalike Origin, native cross-site rejection, trusted/untrusted credentialed preflights, secure cookie scope/clearing                                                        |
-| 28–31              | Healthy live/ready, PostgreSQL connection refusal/termination, sanitized 503/live 200, recovery in same app, barrier-controlled draining and real pool cleanup                                     |
+| Scenarios | Release E2E proof                                                                                                                                                                                  |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–11      | Registration/login, bearer/guest, rotation/replay, persisted tombstone/restart, logout/repeated logout/revoked refresh, access still works then expires at original TTL                            |
+| 12–16, 20 | Public profile fields/update, role/ID/hash rejection, admin search/keyset pagination, guest/user/admin default-deny, foreign profile/session isolation, promotion/demotion with same JWT           |
+| 17–19     | Incorrect/correct old password, production PHC parameters, other families revoked/current retained, old/new credential login, deletion cascades/tombstones, all authentication fails after restart |
+| 21, 25–27 | Real 400/401/403/404/409/413/429/pg-error 500, default limiter plus proxy spoof/chain/invalid-IP tests, safe projections/errors/logs and correlation                                               |
+| 22–24     | Missing/null/foreign/lookalike Origin, native cross-site rejection, trusted/untrusted credentialed preflights, secure cookie scope/clearing                                                        |
+| 28–31     | Healthy live/ready, PostgreSQL connection refusal/termination, sanitized 503/live 200, recovery in same app, barrier-controlled draining and real pool cleanup                                     |
 
 Separate integration tests retain multi-connection races, upgrade/rollback
 transactions, package contracts and privacy exporters. Docker smoke retains
@@ -158,7 +139,7 @@ Before any separately authorized deployment:
 - Record current image/commit, migration journal and recovery point. Review
   schema compatibility with old/new app versions, locking and data-loss risks.
   Execute the migration target once using the approved identity, verify journal
-  and business smoke, then roll out the runtime image. PR-13 adds no migration.
+  and business smoke, then roll out the runtime image.
 - Use live for process restarts and ready for traffic admission; allow at least
   the existing 30-second stop deadline. Validate readiness recovery, logs/error
   IDs and shutdown. Telemetry is optional; collector failure must not block

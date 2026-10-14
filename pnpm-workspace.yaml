@@ -1,4 +1,3 @@
-# Keep the PR-00 spike independent, with its original manifest and lockfile.
 packages:
   - '.'
 # Native tooling dependencies may prepare their platform bindings.

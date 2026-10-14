@@ -93,7 +93,7 @@ The `Verify` job executes, in order:
 
 The test suites run sequentially because they rebuild `.test-dist`. The Compose script builds the runtime and migration images, exercises HTTP validation and registration/login/rotation/logout against PostgreSQL, checks non-root execution/runtime contents, verifies no startup migration, applies explicit migrations twice, checks data survives PostgreSQL restart and container recreation, and checks clean shutdown. It also stops PostgreSQL, verifies the exact image HEALTHCHECK and Docker unhealthy status while liveness stays 200, restores readiness without restarting the API, and observes 503 during the SIGTERM drain window.
 
-Observability checks in the smoke test (PR-12):
+Observability checks in the smoke test:
 
 - The default, telemetry-disabled API's JSON logs contain completion records with request IDs and route templates, with no secrets, emails, tokens or raw IDs.
 - A second API container from the same image runs with `OTEL_ENABLED=true` against a throwaway OTLP/HTTP receiver container on the Compose network. It must export a traceparent-continued server span with PostgreSQL child spans and the request-duration metric at SIGTERM, with no leaked values.
@@ -101,7 +101,7 @@ Observability checks in the smoke test (PR-12):
 
 It creates a unique project with an ephemeral host port and generated test credentials/signing key, then removes only its own containers and volume. It ignores the developer's `.env` and needs no repository secrets. Run it locally with Node and Docker on PATH to reproduce the container checks.
 
-Dependabot checks the root npm/pnpm manifest/lockfile, GitHub Actions and Docker definitions weekly. Development minor/patch updates are grouped; updates are PRs requiring review and CI. No automatic merge is configured. The historical PR-00 spike is intentionally not an update target. Review Node changes together across `.nvmrc`, package engines, Dockerfile and the smoke test; pnpm remains pinned consistently in the manifest, image and workflow.
+Dependabot checks the root npm/pnpm manifest/lockfile, GitHub Actions and Docker definitions weekly. Development minor/patch updates are grouped; updates are PRs requiring review and CI. No automatic merge is configured. Review Node changes together across `.nvmrc`, package engines, Dockerfile and the smoke test; pnpm remains pinned consistently in the manifest, image and workflow.
 
 ## Branch protection / required checks
 
@@ -116,4 +116,4 @@ Do not select an unreported check name; GitHub must first see the workflow check
 
 Successful local commands do not establish GitHub CI success. Check the PR's latest commit under **Checks → CI → Verify**; the PR report links the actual GitHub run once it completes.
 
-See the [release checklist and rollback runbook](release-readiness.md#production-deployment-and-rollback-checklist) before a separately authorized production rollout. PR-13 also checks the migration UID, physical runtime dependency store, source-map privacy and absence of the former SQL probe even when its old flag is supplied.
+See the [release checklist and rollback runbook](release-readiness.md#production-deployment-and-rollback-checklist) before a separately authorized production rollout. The smoke test also checks the migration UID, physical runtime dependency store, source-map privacy and absence of the former SQL probe even when its old flag is supplied.

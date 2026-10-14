@@ -1,6 +1,6 @@
 # Observability
 
-PR-12 adds structured JSON logs, request correlation, optional Sentry error reporting and optional OpenTelemetry traces/metrics. Both SDKs are disabled by default and need no external service: without `SENTRY_DSN` and with `OTEL_ENABLED=false`, the API opens no telemetry connections and loads neither SDK.
+The starter provides structured JSON logs, request correlation, optional Sentry error reporting and optional OpenTelemetry traces/metrics. Both SDKs are disabled by default and need no external service: without `SENTRY_DSN` and with `OTEL_ENABLED=false`, the API opens no telemetry connections and loads neither SDK.
 
 ## Ownership
 
@@ -75,7 +75,7 @@ Events:
 | `http.request.aborted`    | `warn`  | Once when the client disconnected before the response finished; no status code.       |
 | `http.request.failed`     | `error` | Once per unexpected error (non-4xx, non-503 `HttpException`, or non-HTTP throw).      |
 | `telemetry.export.failed` | `warn`  | OTLP export error, at most once per minute, no endpoint or error text.                |
-| `auth.session.revoked`    | `log`   | Unchanged from PR-07.                                                                 |
+| `auth.session.revoked`    | `log`   | Emitted for owned session revocation.                                                 |
 
 Successful `GET /api/v1/health/live` and `/ready` probes produce no log, span or metric. Failed probes (for example readiness 503) are logged. Raw URLs, query strings, headers, cookies, bodies, client IPs and user agents are never logged.
 

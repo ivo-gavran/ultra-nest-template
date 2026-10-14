@@ -5,8 +5,6 @@ pre-commit:
   jobs:
     - name: lint
       glob: '**/*.{js,ts}'
-      exclude:
-        - spikes/**
       run: pnpm exec eslint --max-warnings=0 {staged_files}
     - name: format
       glob: '**/*.{js,ts,json,yml,yaml,md}'
