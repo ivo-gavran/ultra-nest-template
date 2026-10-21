@@ -15,8 +15,17 @@ import { AuthStorageError } from './storage/postgres-refresh-token.store.js';
 export class SessionsRepository {
   constructor(@InjectDrizzle() private readonly db: Database) {}
 
-  async list(userId: string, query: SessionQuery) {
+  // Never let SQL parameters or credentials escape via an error cause.
+  private async persist<T>(operation: () => Promise<T>): Promise<T> {
     try {
+      return await operation();
+    } catch {
+      throw new AuthStorageError();
+    }
+  }
+
+  async list(userId: string, query: SessionQuery) {
+    return this.persist(async () => {
       const anchor = alias(families, 'anchor');
       return await this.db
         .select({
@@ -47,10 +56,7 @@ export class SessionsRepository {
         )
         .orderBy(desc(families.createdAt), desc(families.sessionId))
         .limit(query.limit + 1);
-    } catch {
-      // Never let SQL parameters or credentials escape via an error cause.
-      throw new AuthStorageError();
-    }
+    });
   }
 
   async hasRefreshToken(
@@ -58,7 +64,7 @@ export class SessionsRepository {
     sessionId: string,
     tokenHash: string,
   ): Promise<boolean> {
-    try {
+    return this.persist(async () => {
       const rows = await this.db
         .select({ matched: sql<number>`1` })
         .from(tokens)
@@ -73,13 +79,11 @@ export class SessionsRepository {
         );
       // Spent/expired records still establish cookie ownership for cleanup.
       return rows.length > 0;
-    } catch {
-      throw new AuthStorageError();
-    }
+    });
   }
 
   async revoke(userId: string, sessionId: string): Promise<boolean> {
-    try {
+    return this.persist(async () => {
       // One statement: ownership cannot change between lookup and revocation.
       const inserted = await this.db
         .insert(revoked)
@@ -100,8 +104,6 @@ export class SessionsRepository {
         .onConflictDoNothing()
         .returning({ inserted: sql<number>`1` });
       return inserted.length > 0;
-    } catch {
-      throw new AuthStorageError();
-    }
+    });
   }
 }

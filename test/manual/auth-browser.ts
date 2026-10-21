@@ -10,7 +10,7 @@ let api = '';
 const frontend = createServer((_request, response) => {
   response.setHeader('Content-Type', 'text/html');
   response.setHeader('Cache-Control', 'no-store');
-  response.end(`<!doctype html><html><head><title>PR-06 browser verification</title></head><body>
+  response.end(`<!doctype html><html><head><title>Authentication browser verification</title></head><body>
 <h1>Disposable authentication browser test</h1>
 <p>Uses a new PostgreSQL container and synthetic credentials. No tokens are displayed or persisted by frontend JavaScript.</p>
 <button id="run">Run browser verification</button><pre id="results">Ready</pre>

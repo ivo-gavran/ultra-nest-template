@@ -189,7 +189,7 @@ JS
 test "$(psql "select count(*) from users where email = 'users-smoke@example.test';")" = 0
 test "$(psql 'select count(*) > 0 from auth_revoked_families r left join auth_token_families f using (family_id) where f.family_id is null;')" = t
 
-# PR-12: telemetry is disabled by default; logs are JSON, correlated and
+# Telemetry is disabled by default; logs are JSON, correlated and
 # carry no credentials, tokens, emails or raw identifiers.
 API_URL="http://$address" node --input-type=module <<'JS'
 import assert from 'node:assert/strict';

@@ -64,11 +64,11 @@ describe('Upgrade from the pre-users schema', () => {
   });
 });
 
-describe('Upgrade from PR-05 to authentication', () => {
+describe('Upgrade from the users schema to authentication', () => {
   it('preserves existing users, credentials and example data across the new migration and rerun', async () => {
     const container = await startTestDatabase(false);
     const pool = new Pool({ connectionString: container.getConnectionUri() });
-    const folder = mkdtempSync(join(tmpdir(), 'nest-pr06-migrations-'));
+    const folder = mkdtempSync(join(tmpdir(), 'nest-auth-upgrade-migrations-'));
     try {
       mkdirSync(join(folder, 'meta'));
       for (const name of ['0000_initial_example_records.sql', '0001_users.sql'])

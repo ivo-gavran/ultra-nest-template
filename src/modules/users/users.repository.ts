@@ -64,21 +64,27 @@ function rethrowPersistenceError(error: unknown): never {
 export class UsersRepository {
   constructor(@InjectDrizzle() private readonly db: Database) {}
 
-  /** Internal account workflow only. Never return this projection over HTTP. */
-  async findPasswordHash(id: string): Promise<string | undefined> {
+  private async persist<T>(operation: () => Promise<T>): Promise<T> {
     try {
-      const [record] = await this.db
-        .select({ hash: users.passwordHash })
-        .from(users)
-        .where(eq(users.id, id));
-      return record?.hash;
+      return await operation();
     } catch (error) {
       return rethrowPersistenceError(error);
     }
   }
 
+  /** Internal account workflow only. Never return this projection over HTTP. */
+  async findPasswordHash(id: string): Promise<string | undefined> {
+    return this.persist(async () => {
+      const [record] = await this.db
+        .select({ hash: users.passwordHash })
+        .from(users)
+        .where(eq(users.id, id));
+      return record?.hash;
+    });
+  }
+
   async list(query: UserQuery): Promise<PublicUser[]> {
-    try {
+    return this.persist(async () => {
       const anchor = alias(users, 'anchor');
       // Both identifiers and the comparison/order are selected from fixed code.
       const column = query.sort === 'email' ? users.email : users.createdAt;
@@ -105,9 +111,7 @@ export class UsersRepository {
         )
         .orderBy(order(column), order(users.id))
         .limit(query.limit + 1);
-    } catch (error) {
-      return rethrowPersistenceError(error);
-    }
+    });
   }
 
   /** Internal password authentication only; never use this as an HTTP model. */
@@ -115,21 +119,19 @@ export class UsersRepository {
     input: string,
   ): Promise<{ id: string; passwordHash: string } | undefined> {
     const email = emailSchema.parse(input);
-    try {
+    return this.persist(async () => {
       const [record] = await this.db
         .select({ id: users.id, passwordHash: users.passwordHash })
         .from(users)
         .where(eq(sql`lower(${users.email})`, email))
         .limit(1);
       return record;
-    } catch (error) {
-      return rethrowPersistenceError(error);
-    }
+    });
   }
 
   async create(input: NewUserRecord): Promise<PublicUser> {
     const email = emailSchema.parse(input.email);
-    try {
+    return this.persist(async () => {
       const [user] = await this.db
         .insert(users)
         .values({
@@ -139,36 +141,30 @@ export class UsersRepository {
         })
         .returning(publicColumns);
       return user;
-    } catch (error) {
-      return rethrowPersistenceError(error);
-    }
+    });
   }
 
   async findById(id: string): Promise<PublicUser | undefined> {
-    try {
+    return this.persist(async () => {
       const [user] = await this.db
         .select(publicColumns)
         .from(users)
         .where(eq(users.id, id))
         .limit(1);
       return user;
-    } catch (error) {
-      return rethrowPersistenceError(error);
-    }
+    });
   }
 
   async findByEmail(input: string): Promise<PublicUser | undefined> {
     const email = emailSchema.parse(input);
-    try {
+    return this.persist(async () => {
       const [user] = await this.db
         .select(publicColumns)
         .from(users)
         .where(eq(sql`lower(${users.email})`, email))
         .limit(1);
       return user;
-    } catch (error) {
-      return rethrowPersistenceError(error);
-    }
+    });
   }
 
   async update(
@@ -192,7 +188,7 @@ export class UsersRepository {
   ): Promise<PublicUser | undefined> {
     const email =
       input.email === undefined ? undefined : emailSchema.parse(input.email);
-    try {
+    return this.persist(async () => {
       const [user] = await this.db
         .update(users)
         .set({
@@ -204,9 +200,7 @@ export class UsersRepository {
         .where(eq(users.id, id))
         .returning(publicColumns);
       return user;
-    } catch (error) {
-      return rethrowPersistenceError(error);
-    }
+    });
   }
 
   async changePassword(
@@ -215,7 +209,7 @@ export class UsersRepository {
     passwordHash: string,
     currentSid: string | undefined,
   ): Promise<void> {
-    try {
+    return this.persist(async () => {
       await this.db.transaction(async (tx) => {
         // Same user-first lock as refresh saving/logout-all/deletion. Expensive
         // scrypt runs beforehand; the locked comparison prevents lost updates.
@@ -266,13 +260,11 @@ export class UsersRepository {
           )
           .onConflictDoNothing();
       });
-    } catch (error) {
-      rethrowPersistenceError(error);
-    }
+    });
   }
 
   async deleteAccount(id: string): Promise<void> {
-    try {
+    return this.persist(async () => {
       await this.db.transaction(async (tx) => {
         const [user] = await tx
           .select({ id: users.id })
@@ -296,8 +288,6 @@ export class UsersRepository {
           .onConflictDoNothing();
         await tx.delete(users).where(eq(users.id, id));
       });
-    } catch (error) {
-      rethrowPersistenceError(error);
-    }
+    });
   }
 }

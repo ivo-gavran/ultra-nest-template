@@ -39,7 +39,7 @@ function expectPolicies(response: Response, policies: string[]) {
   }
 }
 
-describe('Security hardening (PR-10)', () => {
+describe('Security hardening', () => {
   let container: StartedPostgreSqlContainer;
   let app: INestApplication;
   let db: Database;
