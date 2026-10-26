@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24.21.0-bookworm-slim AS base
+FROM node:26.12.1-bookworm-slim AS base
 WORKDIR /app
 RUN npm install --global pnpm@10.33.0
 
@@ -27,7 +27,7 @@ COPY migrations ./migrations
 USER node
 CMD ["pnpm", "db:migrate"]
 
-FROM node:24.21.0-bookworm-slim AS runtime
+FROM node:26.12.1-bookworm-slim AS runtime
 ENV NODE_ENV=production PORT=3000
 WORKDIR /app
 COPY --from=production-dependencies /app/node_modules ./node_modules
